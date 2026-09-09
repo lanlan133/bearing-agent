@@ -993,3 +993,249 @@ MSM-17D 特征
         "success": True,
         "report": report_text,
     }
+def answer_diagnosis_question(
+    question: str,
+    report: dict,
+) -> dict:
+    """
+    基于当前诊断结果回答用户追问。
+    """
+
+    import os
+    import json
+
+    from openai import OpenAI
+
+
+    # ========================================================
+    # 1. API KEY
+    # ========================================================
+
+    api_key = os.getenv(
+        "DEEPSEEK_API_KEY"
+    )
+
+    if not api_key:
+
+        try:
+            import streamlit as st
+
+            api_key = st.secrets[
+                "DEEPSEEK_API_KEY"
+            ]
+
+        except Exception:
+            api_key = None
+
+
+    if not api_key:
+
+        return {
+            "success": False,
+            "answer": (
+                "未检测到 DEEPSEEK_API_KEY，"
+                "暂时无法调用 DeepSeek。"
+            ),
+        }
+
+
+    # ========================================================
+    # 2. DeepSeek Client
+    # ========================================================
+
+    client = OpenAI(
+        api_key=api_key,
+        base_url="https://api.deepseek.com",
+    )
+
+
+    # ========================================================
+    # 3. 从诊断报告提取关键信息
+    # ========================================================
+
+    diagnosis = report.get(
+        "diagnosis",
+        "未知",
+    )
+
+    stacking_probability = report.get(
+        "stacking_probability",
+        report.get(
+            "risk_probability",
+            None,
+        ),
+    )
+
+    rf_probability = report.get(
+        "rf_probability",
+        None,
+    )
+
+    xgb_probability = report.get(
+        "xgb_probability",
+        None,
+    )
+
+    svm_probability = report.get(
+        "svm_probability",
+        None,
+    )
+
+    risk_level = report.get(
+        "risk_level",
+        "未知",
+    )
+
+    summary = report.get(
+        "summary",
+        "",
+    )
+
+    evidence = report.get(
+        "top_evidence",
+        [],
+    )
+
+
+    # ========================================================
+    # 4. 构建上下文
+    # ========================================================
+
+    diagnosis_context = {
+        "final_model": (
+            "MSM-ADASYN-Stacking"
+        ),
+
+        "diagnosis":
+            diagnosis,
+
+        "stacking_probability":
+            stacking_probability,
+
+        "level0_probabilities": {
+            "RF":
+                rf_probability,
+
+            "XGBoost":
+                xgb_probability,
+
+            "SVM":
+                svm_probability,
+        },
+
+        "risk_level":
+            risk_level,
+
+        "summary":
+            summary,
+
+        "shap_evidence":
+            evidence,
+    }
+
+
+    # ========================================================
+    # 5. System Prompt
+    # ========================================================
+
+    system_prompt = """
+你是一名旋转机械轴承润滑状态诊断助手。
+
+当前系统采用 MSM-ADASYN-Stacking 进行最终诊断：
+
+MSM-17D
+→ Random Forest
+→ XGBoost
+→ SVM
+→ Logistic Regression Meta Learner
+→ 最终 Stacking 概率
+
+注意：
+
+1. 最终故障概率来自 Stacking，不是单独的 XGBoost。
+2. RF、XGBoost、SVM 的概率属于 Level-0 基学习器结果。
+3. SHAP 证据目前仅解释 XGBoost 基学习器，
+   不能描述成整个 Stacking 模型的 SHAP。
+4. 回答必须基于提供的诊断数据。
+5. 不要编造没有出现在诊断上下文中的数据。
+6. 如果用户询问判断原因，应结合：
+   - Stacking 最终概率
+   - 三个基学习器概率
+   - SHAP 特征证据
+   进行解释。
+7. 如果样本位于 Review Policy 复核区，
+   应明确说明需要人工复核。
+8. 使用中文回答。
+9. 优先使用清晰、工程化、容易理解的表达。
+"""
+
+
+    # ========================================================
+    # 6. User Prompt
+    # ========================================================
+
+    user_prompt = f"""
+以下是当前样本的诊断结果：
+
+{json.dumps(
+    diagnosis_context,
+    ensure_ascii=False,
+    indent=2,
+)}
+
+用户的问题：
+
+{question}
+
+请只围绕当前样本回答。
+"""
+
+
+    # ========================================================
+    # 7. 调用 DeepSeek
+    # ========================================================
+
+    try:
+
+        response = client.chat.completions.create(
+
+            model="deepseek-chat",
+
+            messages=[
+                {
+                    "role": "system",
+                    "content": system_prompt,
+                },
+                {
+                    "role": "user",
+                    "content": user_prompt,
+                },
+            ],
+
+            temperature=0.2,
+        )
+
+
+        answer = (
+            response
+            .choices[0]
+            .message
+            .content
+        )
+
+
+        return {
+            "success": True,
+            "answer": answer,
+        }
+
+
+    except Exception as exc:
+
+        return {
+            "success": False,
+            "answer": (
+                "DeepSeek 调用失败："
+                f"{exc}"
+            ),
+        }

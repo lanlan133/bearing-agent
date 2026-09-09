@@ -19,10 +19,12 @@ if str(SRC_DIR) not in sys.path:
         str(SRC_DIR)
     )
 
-
 # ============================================================
 # 2. 项目模块
 # ============================================================
+from llm_reporter import (
+    answer_diagnosis_question,
+)
 
 from data_loader import (
     load_mat_dataset,
@@ -1053,20 +1055,57 @@ if prompt:
             # ------------------------------------------------
 
             elif (
-                st.session_state.last_report
-                is not None
+
+                    st.session_state.last_report
+
+                    is not None
+
             ):
 
-                assistant_text = (
-                    "我已经保留了上一条样本的诊断结果。\n\n"
-                    "下一步我们可以把这里接入 DeepSeek，"
-                    "这样你就可以继续问：\n\n"
-                    "- 为什么判定为轴承润滑不良？\n"
-                    "- 哪个特征影响最大？\n"
-                    "- 应该怎么维护？\n"
-                    "- 这个概率可靠吗？\n"
-                    "- 给我生成一份完整报告。\n"
-                )
+                with st.spinner(
+
+                        "正在结合上一条诊断结果进行分析..."
+
+                ):
+
+                    llm_result = answer_diagnosis_question(
+
+                        question=user_text,
+
+                        report=st.session_state.last_report,
+
+                    )
+
+                if llm_result.get(
+
+                        "success",
+
+                        False,
+
+                ):
+
+                    assistant_text = (
+
+                        llm_result.get(
+
+                            "answer",
+
+                            "DeepSeek 已完成分析，但没有返回有效内容。"
+
+                        )
+
+                    )
+
+
+                else:
+
+                    assistant_text = (
+
+                        "DeepSeek 调用失败。\n\n"
+
+                        f"{llm_result.get('answer', '未知错误')}"
+
+                    )
 
             else:
 
