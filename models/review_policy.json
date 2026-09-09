@@ -1,0 +1,69 @@
+{
+  "version": "2.0",
+  "method": "paper_stacking_multi_seed_holdout_review",
+  "model_name": "MSM-ADASYN-Stacking",
+  "probability_field": "stacking_probability",
+  "base_threshold": 0.5,
+  "lower_threshold": 0.01,
+  "upper_threshold": 0.96,
+  "selection": {
+    "max_review_rate": 0.15,
+    "priority": [
+      "fn_coverage",
+      "error_coverage",
+      "auto_accuracy",
+      "review_rate"
+    ],
+    "threshold_step": 0.01
+  },
+  "validation_source": {
+    "directory": "reports\\paper_stacking_validation",
+    "file_pattern": "seed_*_predictions.csv",
+    "files": [
+      "seed_00_predictions.csv",
+      "seed_01_predictions.csv",
+      "seed_02_predictions.csv",
+      "seed_03_predictions.csv",
+      "seed_04_predictions.csv",
+      "seed_05_predictions.csv",
+      "seed_06_predictions.csv",
+      "seed_07_predictions.csv",
+      "seed_08_predictions.csv",
+      "seed_09_predictions.csv",
+      "seed_42_predictions.csv"
+    ],
+    "seed_count": 11,
+    "prediction_rows": 5784,
+    "unique_sample_count": 1728,
+    "pooling": "equal-weight prediction rows across held-out seed splits"
+  },
+  "validation_metrics": {
+    "review_count": 825,
+    "review_rate": 0.14263485477178423,
+    "fn_coverage": 0.7912087912087912,
+    "fp_coverage": 0.7572815533980582,
+    "error_coverage": 0.7731958762886598,
+    "auto_accuracy": 0.9911272433958459,
+    "residual_fn": 19,
+    "residual_fp": 25,
+    "per_seed_review_rate_mean": 0.14262194350574228,
+    "per_seed_review_rate_std": 0.01643551090109497,
+    "per_seed_auto_accuracy_mean": 0.991130612187307,
+    "per_seed_auto_accuracy_std": 0.004141887972419408
+  },
+  "base_validation_metrics": {
+    "accuracy": 0.9664591977869986,
+    "precision": 0.9270538243626062,
+    "recall": 0.935,
+    "f1": 0.9310099573257469,
+    "tn": 4281,
+    "fp": 103,
+    "fn": 91,
+    "tp": 1309
+  },
+  "decision_rule": {
+    "normal": "p < lower_threshold",
+    "review": "lower_threshold <= p <= upper_threshold",
+    "fault": "p > upper_threshold"
+  }
+}

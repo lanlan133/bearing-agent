@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+
+# Secrets
+.env
+.env.*
+.streamlit/secrets.toml
+
+# Runtime uploads
+data/uploaded/
+
+# Raw industrial data
+data/raw/
+
+# Generated reports
+reports/
+
+# Cache
+.cache/
+.pytest_cache/
+.mypy_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+# Derived industrial feature data
+data/features/
+# Ignore old model artifacts
+models/*.joblib
+
+# Keep deployment models
+!models/Paper_Stacking_Bundle.joblib
+!models/XGBoost.joblib
