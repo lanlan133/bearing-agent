@@ -22,17 +22,13 @@ if str(SRC_DIR) not in sys.path:
 # ============================================================
 # 2. 项目模块
 # ============================================================
-from llm_reporter import (
-    answer_diagnosis_question,
-)
-
 from data_loader import (
     load_mat_dataset,
     load_single_sample,
 )
 
-from diagnosis_agent import (
-    run_diagnosis_agent,
+from agent_runtime import (
+    run_agent_task,
 )
 
 
@@ -319,6 +315,10 @@ if "last_report" not in st.session_state:
 
 if "last_sample" not in st.session_state:
     st.session_state.last_sample = None
+
+
+if "last_agent_result" not in st.session_state:
+    st.session_state.last_agent_result = None
 
 
 # ============================================================
@@ -922,6 +922,7 @@ if prompt:
             st.session_state.last_report = None
             st.session_state.last_sample = None
             st.session_state.last_sample_index = None
+            st.session_state.last_agent_result = None
 
             assistant_text = (
                 f"✅ 文件 `{uploaded_file.name}` "
@@ -977,143 +978,185 @@ if prompt:
         else:
 
             # ------------------------------------------------
-            # 判断用户是否在选择样本
+            # 构造只属于当前会话的 Agent 上下文
             # ------------------------------------------------
 
             sample_index = parse_sample_number(
                 user_text
             )
 
-            if sample_index is not None:
+            total_samples = int(
+                st.session_state.total_samples
+            )
 
-                total_samples = (
-                    st.session_state.total_samples
-                )
-
-                if (
+            if (
+                sample_index is not None
+                and (
                     sample_index < 0
-                    or
-                    sample_index >= total_samples
-                ):
-
-                    assistant_text = (
-                        f"当前数据集共有 "
-                        f"**{total_samples} 条数据**。\n\n"
-                        f"请输入 1 ～ {total_samples} "
-                        f"之间的样本编号。"
-                    )
-
-                else:
-
-                    human_number = (
-                        sample_index + 1
-                    )
-
-                    with st.spinner(
-                        f"正在诊断第 {human_number} 条数据..."
-                    ):
-
-                        sample = load_single_sample(
-                            Path(
-                                st.session_state.mat_file_path
-                            ),
-                            sample_index=sample_index,
-                        )
-
-                        report = run_diagnosis_agent(
-                            signal_data=sample[
-                                "signal"
-                            ],
-                            sampling_rate=sample[
-                                "sampling_rate"
-                            ],
-                            top_n=5,
-                        )
-
-                    st.session_state.last_sample_index = (
-                        sample_index
-                    )
-
-                    st.session_state.last_sample = (
-                        sample
-                    )
-
-                    st.session_state.last_report = (
-                        report
-                    )
-
-                    assistant_text = (
-                        format_diagnosis_result(
-                            human_number,
-                            sample,
-                            report,
-                        )
-                    )
-
-            # ------------------------------------------------
-            # 已诊断后用户继续聊天
-            # ------------------------------------------------
-
-            elif (
-
-                    st.session_state.last_report
-
-                    is not None
-
+                    or sample_index >= total_samples
+                )
             ):
-
-                with st.spinner(
-
-                        "正在结合上一条诊断结果进行分析..."
-
-                ):
-
-                    llm_result = answer_diagnosis_question(
-
-                        question=user_text,
-
-                        report=st.session_state.last_report,
-
-                    )
-
-                if llm_result.get(
-
-                        "success",
-
-                        False,
-
-                ):
-
-                    assistant_text = (
-
-                        llm_result.get(
-
-                            "answer",
-
-                            "DeepSeek 已完成分析，但没有返回有效内容。"
-
-                        )
-
-                    )
-
-
-                else:
-
-                    assistant_text = (
-
-                        "DeepSeek 调用失败。\n\n"
-
-                        f"{llm_result.get('answer', '未知错误')}"
-
-                    )
+                assistant_text = (
+                    f"当前数据集共有 "
+                    f"**{total_samples} 条数据**。\n\n"
+                    f"请输入 1 ～ {total_samples} "
+                    f"之间的样本编号。"
+                )
 
             else:
+                last_sample_number = None
 
-                assistant_text = (
-                    "我没有识别出你要处理的样本编号。\n\n"
-                    "例如可以输入：`5`、`第5条`、"
-                    "`第五条`。"
+                if (
+                    st.session_state.last_sample_index
+                    is not None
+                ):
+                    last_sample_number = (
+                        st.session_state.last_sample_index
+                        + 1
+                    )
+
+                agent_context = {
+                    "mat_file_path":
+                        st.session_state.mat_file_path,
+
+                    "mat_file_name":
+                        st.session_state.mat_file_name,
+
+                    "total_samples":
+                        total_samples,
+
+                    "last_sample_number":
+                        last_sample_number,
+
+                    "last_report":
+                        st.session_state.last_report,
+                }
+
+                # 简短编号统一改写为明确任务，减少规划歧义。
+                if sample_index is not None:
+                    human_number = sample_index + 1
+                    agent_goal = (
+                        f"请诊断第{human_number}条数据，"
+                        "给出完整诊断结果，并说明"
+                        "是否需要人工复核。"
+                    )
+                    spinner_text = (
+                        f"Agent 正在规划并诊断第 "
+                        f"{human_number} 条数据..."
+                    )
+                else:
+                    agent_goal = user_text
+                    spinner_text = (
+                        "Agent 正在分析目标并选择工具..."
+                    )
+
+                with st.spinner(
+                    spinner_text
+                ):
+                    agent_result = run_agent_task(
+                        user_goal=agent_goal,
+                        context=agent_context,
+                        max_steps=5,
+                    )
+
+                st.session_state.last_agent_result = (
+                    agent_result
                 )
+
+                result_context = (
+                    agent_result.get("context")
+                    or {}
+                )
+
+                updated_report = result_context.get(
+                    "last_report"
+                )
+
+                updated_sample_number = (
+                    result_context.get(
+                        "last_sample_number"
+                    )
+                )
+
+                observations = (
+                    agent_result.get("observations")
+                    or []
+                )
+
+                diagnosed_sample = any(
+                    observation.get("success", False)
+                    and observation.get("tool")
+                    == "diagnose_sample"
+                    for observation in observations
+                )
+
+                # 诊断工具执行成功后，把完整结果同步回网页状态。
+                if (
+                    diagnosed_sample
+                    and updated_report is not None
+                    and updated_sample_number is not None
+                ):
+                    updated_sample_index = (
+                        int(updated_sample_number) - 1
+                    )
+
+                    updated_sample = load_single_sample(
+                        Path(
+                            st.session_state.mat_file_path
+                        ),
+                        sample_index=updated_sample_index,
+                    )
+
+                    st.session_state.last_sample_index = (
+                        updated_sample_index
+                    )
+                    st.session_state.last_sample = (
+                        updated_sample
+                    )
+                    st.session_state.last_report = (
+                        updated_report
+                    )
+
+                status = agent_result.get(
+                    "status",
+                    "failed",
+                )
+                agent_answer = agent_result.get(
+                    "answer",
+                    "Agent 没有返回有效内容。",
+                )
+
+                if status == "completed":
+                    if diagnosed_sample:
+                        diagnosis_text = (
+                            format_diagnosis_result(
+                                int(updated_sample_number),
+                                st.session_state.last_sample,
+                                st.session_state.last_report,
+                            )
+                        )
+                        assistant_text = (
+                            f"{diagnosis_text}\n\n---\n\n"
+                            f"### AI Agent 分析\n\n"
+                            f"{agent_answer}"
+                        )
+                    else:
+                        assistant_text = agent_answer
+
+                elif status == "waiting_user":
+                    assistant_text = agent_answer
+
+                elif status == "max_steps_reached":
+                    assistant_text = (
+                        "Agent 在规定步骤内未完成任务。\n\n"
+                        f"{agent_answer}"
+                    )
+
+                else:
+                    assistant_text = (
+                        "Agent 执行失败。\n\n"
+                        f"{agent_answer}"
+                    )
 
 
         st.session_state.messages.append(
