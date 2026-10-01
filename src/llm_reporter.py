@@ -131,7 +131,7 @@ Python程序已经完成：
 2. MSM-17D特征提取
 3. MSM-ADASYN-Stacking综合诊断
 4. RF、XGBoost、SVM三个Level-0基学习器概率计算
-5. XGBoost基学习器SHAP解释
+5. 完整MSM-ADASYN-Stacking最终概率的SHAP解释
 6. Review Policy决策
 
 你只能依据输入JSON中的事实生成诊断报告。
@@ -142,10 +142,10 @@ Python程序已经完成：
 2. 不得修改Agent最终决策。
 3. 不得修改MSM-ADASYN-Stacking原始结论。
 4. 不得修改Stacking最终概率或Level-0基学习器概率。
-5. 不得修改XGBoost基学习器SHAP数值。
+5. 不得修改完整Stacking SHAP数值。
 6. 如果Agent决定“建议复核”，不能擅自改成正常或故障。
-7. SHAP表示XGBoost基学习器的判别贡献，不等于Stacking整体贡献，
-   也不等于物理因果证明。
+7. SHAP表示17维MSM特征对完整Stacking最终概率的贡献，
+   但不等于物理因果证明。
 8. 不要凭空添加传感器测量值、温度、油液检测结果或维修历史。
 9. 维护建议应使用“建议检查、建议复核”等工程措辞，
    不得把模型结果描述成绝对物理事实。
@@ -290,10 +290,10 @@ Stacking最终概率和风险等级。
 同时应以输入JSON中的实际阈值为准。
 如果进入复核区，必须明确说明系统没有自动放行。
 
-## 3. XGBoost基学习器关键SHAP证据
-重点解释XGBoost基学习器的Top SHAP特征。
+## 3. 完整Stacking关键SHAP证据
+重点解释完整Stacking最终概率的Top SHAP特征。
 必须说明正SHAP推动润滑不良，负SHAP推动非润滑不良。
-不得将这些SHAP值表述为Stacking整体的SHAP解释。
+应明确这些SHAP值对应完整Stacking最终概率。
 
 ## 4. 频谱与MSM机理解释
 结合ROI、Gaussian和MSM特征含义进行解释。
@@ -524,11 +524,11 @@ def build_local_single_report(
     )
 
     lines.append(
-        "## 3. XGBoost基学习器SHAP证据"
+        "## 3. 完整Stacking SHAP证据"
     )
 
     lines.append(
-        "以下SHAP值解释XGBoost基学习器，不代表Stacking整体贡献。"
+        "以下SHAP值解释17维MSM特征对完整Stacking最终概率的贡献。"
     )
 
     for item in report.get(
@@ -631,8 +631,7 @@ def build_batch_prompt(
 
 ## 4. 主要模型证据
 根据 top_global_features
-总结本批数据中常见的XGBoost基学习器SHAP特征，
-不得将其描述为Stacking整体的SHAP贡献。
+总结本批数据中常见的完整Stacking SHAP特征。
 
 ## 5. 人工复核建议
 重点说明Review样本需要进一步检查的原因。
@@ -646,7 +645,7 @@ def build_batch_prompt(
 
 ## 7. 使用限制
 明确说明：
-MSM-ADASYN-Stacking、XGBoost基学习器SHAP和Agent用于状态监测辅助，
+MSM-ADASYN-Stacking、完整Stacking SHAP和Agent用于状态监测辅助，
 不能代替现场检查和专业维护判断。
 """
 
@@ -886,7 +885,7 @@ MSM-17D 特征
 → MSM-ADASYN数据平衡
 → RF、XGBoost、SVM Level-0基学习器
 → Stacking综合诊断与最终概率
-→ XGBoost基学习器SHAP解释
+→ 完整Stacking最终概率SHAP解释
 → Review Policy（复核区间0.01～0.96）
 → Agent 三态决策
 
@@ -962,7 +961,7 @@ MSM-17D 特征
 重要要求：
 
 1. 不得修改MSM-ADASYN-Stacking诊断结果或任何概率。
-2. XGBoost SHAP只解释XGBoost基学习器，不代表Stacking整体贡献。
+2. SHAP解释17维MSM特征对完整Stacking最终概率的贡献。
 3. 不得虚构不存在的数据。
 4. DeepSeek 只负责解释和总结。
 5. Agent 的诊断结果是最终机器决策依据。
@@ -1154,8 +1153,7 @@ MSM-17D
 
 1. 最终故障概率来自 Stacking，不是单独的 XGBoost。
 2. RF、XGBoost、SVM 的概率属于 Level-0 基学习器结果。
-3. SHAP 证据目前仅解释 XGBoost 基学习器，
-   不能描述成整个 Stacking 模型的 SHAP。
+3. SHAP证据解释17维MSM特征对完整Stacking最终概率的贡献。
 4. 回答必须基于提供的诊断数据。
 5. 不要编造没有出现在诊断上下文中的数据。
 6. 如果用户询问判断原因，应结合：

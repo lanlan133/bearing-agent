@@ -100,7 +100,7 @@ st.title(
 )
 
 st.caption(
-    "MSM-17D + MSM-ADASYN-Stacking + XGBoost 基学习器 SHAP"
+    "MSM-17D + MSM-ADASYN-Stacking + 完整 Stacking SHAP"
 )
 
 st.divider()
@@ -299,7 +299,7 @@ if diagnosis_mode == "单样本诊断":
 if diagnosis_mode == "单样本诊断" and run_button:
 
     with st.spinner(
-        "正在执行 MSM-17D、MSM-ADASYN-Stacking 和 XGBoost-SHAP 诊断..."
+        "正在执行 MSM-17D、MSM-ADASYN-Stacking 和完整 Stacking SHAP 诊断..."
     ):
 
         report = run_diagnosis_agent(
@@ -489,7 +489,7 @@ if (
         )
         st.info(
             "当前样本不会直接作为自动正常或自动故障结果使用，"
-            "建议结合频谱、XGBoost-SHAP证据和现场运行信息进行二次复核。"
+            "建议结合频谱、完整Stacking SHAP证据和现场运行信息进行二次复核。"
         )
     else:
         st.success(
@@ -560,12 +560,11 @@ if (
     # ========================================================
 
     st.subheader(
-        "XGBoost 基学习器 SHAP 证据"
+        "完整 Stacking SHAP 证据"
     )
 
     st.caption(
-        "以下 SHAP 值解释 XGBoost 基学习器的判别贡献，"
-        "不代表 Stacking 整体贡献。"
+        "以下 SHAP 值解释17维MSM特征对完整Stacking最终概率的贡献。"
     )
 
     evidence_rows = []
@@ -614,7 +613,7 @@ if (
 
     st.dataframe(
         evidence_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -624,7 +623,7 @@ if (
     # ========================================================
 
     st.subheader(
-        "XGBoost 基学习器 SHAP 贡献"
+        "完整 Stacking SHAP 贡献"
     )
 
     shap_chart_df = (
@@ -776,7 +775,7 @@ if (
 
     st.dataframe(
         feature_df,
-        use_container_width=True,
+        width="stretch",
         hide_index=True,
     )
 
@@ -1277,7 +1276,7 @@ if diagnosis_mode == "批量诊断":
 
         st.caption(
             "DeepSeek 根据批量 Diagnosis Agent 的统计结果、"
-            "Stacking 高风险样本和 XGBoost 基学习器 SHAP 特征生成巡检总结，"
+            "Stacking 高风险样本和完整 Stacking SHAP 特征生成巡检总结，"
             "不会修改本地模型的诊断结果。"
         )
 

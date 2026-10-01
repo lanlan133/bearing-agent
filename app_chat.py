@@ -701,7 +701,7 @@ def format_diagnosis_result(
             )
 
     # --------------------------------------------
-    # XGBoost 基学习器 SHAP
+    # 完整 Stacking SHAP
     # --------------------------------------------
 
     lines.append("")
@@ -781,8 +781,7 @@ def format_diagnosis_result(
     lines.append("")
 
     lines.append(
-        "> SHAP 表示 XGBoost 基学习器的判别贡献，"
-        "不代表 Stacking 整体贡献，"
+        "> SHAP 表示完整 MSM-ADASYN-Stacking 最终概率的特征贡献，"
         "也不应单独解释为已经证明的物理因果关系。"
     )
 

@@ -686,26 +686,48 @@ def calculate_f6(
         fs
 ):
     """
-    高频区域分成 HIGH_FREQ_BANDS 个子频带，
-    对子频带能量计算归一化谱熵。
+    论文 f6：先把完整单边频谱等分为 HIGH_FREQ_BANDS 个子频带，
+    再从 f_cut 所在子频带开始，对各高频子带能量计算归一化谱熵。
+
+    注意不能先截取 [f_cut, Nyquist] 再等分，否则子频带边界会与
+    论文定义不同。
     """
 
     nyquist = fs / 2.0
 
-    high_start = (
+    f_cut = (
         HIGH_FREQ_RATIO
         * nyquist
     )
 
     edges = np.linspace(
-        high_start,
+        0.0,
         nyquist,
         HIGH_FREQ_BANDS + 1
+    )
+
+    # f_cut 所在的子频带（0-based）。当 f_cut 恰好落在边界上时，
+    # 按 [left, right) 约定归入右侧子频带。
+    start_band = int(
+        np.searchsorted(
+            edges,
+            f_cut,
+            side="right"
+        ) - 1
+    )
+
+    start_band = int(
+        np.clip(
+            start_band,
+            0,
+            HIGH_FREQ_BANDS - 1
+        )
     )
 
     band_energies = []
 
     for i in range(
+        start_band,
         HIGH_FREQ_BANDS
     ):
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+from functools import lru_cache
 
 import joblib
 import numpy as np
@@ -23,7 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL_FILE = (
     PROJECT_ROOT
     / "models"
-    / "XGBoost.joblib"
+    / "Paper_Stacking_Bundle.joblib"
 )
 
 DEFAULT_REPORT_DIR = (
@@ -36,6 +37,9 @@ DEFAULT_REPORT_DIR.mkdir(
     parents=True,
     exist_ok=True
 )
+
+
+_SHAP_EXPLAINER_CACHE = {}
 
 
 # ============================================================
@@ -145,11 +149,12 @@ FEATURE_MEANINGS = {
 # 4. 模型加载
 # ============================================================
 
+@lru_cache(maxsize=4)
 def load_diagnosis_model(
         model_file=DEFAULT_MODEL_FILE
 ):
     """
-    加载训练好的 XGBoost Pipeline。
+    加载训练好的完整 Paper Stacking 模型包。
     """
 
     model_file = Path(
@@ -170,33 +175,67 @@ def load_diagnosis_model(
 
 
 # ============================================================
-# 5. 获取 Pipeline 中真正的 XGBoost
+# 5. 完整 Stacking 概率函数
 # ============================================================
 
-def get_xgb_estimator(
-        pipeline
+def predict_complete_stacking_probability(
+        model_bundle,
+        feature_matrix
 ):
     """
-    从 imblearn Pipeline 中取出最终 XGBoost 模型，
-    用于 SHAP。
+    从原始17维MSM特征计算完整Stacking的正类概率。
+
+    该函数覆盖：标准化、三个Level-0概率、17维特征直通和
+    Level-1逻辑回归，是完整Stacking SHAP实际解释的函数。
     """
 
-    if hasattr(
-        pipeline,
-        "named_steps"
-    ):
+    X = np.asarray(
+        feature_matrix,
+        dtype=float,
+    )
 
-        if "model" not in pipeline.named_steps:
+    if X.ndim == 1:
+        X = X.reshape(1, -1)
 
-            raise KeyError(
-                "Pipeline 中没有找到 model"
-            )
+    if X.ndim != 2 or X.shape[1] != 17:
+        raise ValueError(
+            "完整Stacking解释要求输入形状为 (n_samples, 17)，"
+            f"当前为 {X.shape}。"
+        )
 
-        return pipeline.named_steps[
-            "model"
+    if not np.isfinite(X).all():
+        raise ValueError(
+            "完整Stacking解释输入存在 NaN 或 Inf。"
+        )
+
+    X_scaled = model_bundle[
+        "scaler"
+    ].transform(X)
+
+    probability_features = np.column_stack(
+        [
+            model_bundle["rf"].predict_proba(
+                X_scaled
+            )[:, 1],
+            model_bundle["xgb"].predict_proba(
+                X_scaled
+            )[:, 1],
+            model_bundle["svm"].predict_proba(
+                X_scaled
+            )[:, 1],
         ]
+    )
 
-    return pipeline
+    X_meta = np.hstack(
+        [
+            probability_features,
+            X_scaled,
+        ]
+    )
+
+    return model_bundle[
+        "meta"
+    ].predict_proba(X_meta)[:, 1]
 
 
 # ============================================================
@@ -244,29 +283,79 @@ def features_to_array(
 # ============================================================
 
 def explain_prediction(
-        pipeline,
+        model_bundle,
         feature_array,
         top_n=5
 ):
     """
-    对单条17维MSM特征做局部SHAP解释。
+    对完整MSM-ADASYN-Stacking最终概率做局部Kernel SHAP解释。
     """
 
-    xgb_model = get_xgb_estimator(
-        pipeline
+    if "shap_background_raw" not in model_bundle:
+        raise KeyError(
+            "模型包缺少 shap_background_raw。"
+            "请重新运行 train_paper_stacking.py。"
+        )
+
+    background = np.asarray(
+        model_bundle["shap_background_raw"],
+        dtype=float,
     )
 
-    explainer = shap.TreeExplainer(
-        xgb_model
+    if (
+        background.ndim != 2
+        or background.shape[1] != 17
+        or len(background) == 0
+    ):
+        raise ValueError(
+            "模型包中的SHAP背景数据无效："
+            f"{background.shape}"
+        )
+
+    cache_key = id(model_bundle)
+    explainer = _SHAP_EXPLAINER_CACHE.get(
+        cache_key
     )
+
+    if explainer is None:
+        probability_function = lambda values: (
+            predict_complete_stacking_probability(
+                model_bundle,
+                values,
+            )
+        )
+
+        explainer = shap.KernelExplainer(
+            probability_function,
+            background,
+            link="identity",
+            feature_names=FEATURE_COLUMNS,
+        )
+
+        _SHAP_EXPLAINER_CACHE[
+            cache_key
+        ] = explainer
 
     X = feature_array.reshape(
         1,
         -1
     )
 
+    shap_config = model_bundle.get(
+        "shap_config",
+        {},
+    )
+
     shap_values = explainer.shap_values(
-        X
+        X,
+        nsamples=int(
+            shap_config.get(
+                "nsamples",
+                256,
+            )
+        ),
+        l1_reg=0.0,
+        silent=True,
     )
 
     # --------------------------------------------------------
@@ -492,7 +581,7 @@ def build_diagnosis_summary(
         )
 
     summary += (
-        f" 当前特征解释主要基于 XGBoost 基学习器的 SHAP 证据。"
+        f" 当前特征解释基于完整 Stacking 最终概率的 SHAP 证据。"
         f"{mechanism_text}。"
     )
 
@@ -598,7 +687,7 @@ def diagnose_signal(
     )
 
     # ========================================================
-    # 4) 加载模型
+    # 4) 加载完整Stacking模型包
     # ========================================================
 
     model = load_diagnosis_model(
@@ -669,11 +758,7 @@ def diagnose_signal(
     )
 
     # ============================================================
-    # 6) SHAP
-    #
-    # 注意：
-    # 当前 SHAP 仍解释 XGBoost 基学习器，
-    # 不代表整个 Stacking 最终模型的 SHAP。
+    # 6) 完整Stacking SHAP
     # ============================================================
 
     evidence = explain_prediction(
@@ -960,15 +1045,29 @@ def diagnose_signal(
             feature_dict,
 
         # ========================================================
-        # SHAP证据
-        #
-        # 注意：
-        # 当前这里解释的是 XGBoost 基学习器，
-        # 不是完整 Stacking 模型。
+        # 完整Stacking最终概率的SHAP证据
         # ========================================================
 
         "explanation_model":
-            "XGBoost base learner",
+            "Complete MSM-ADASYN-Stacking probability",
+
+        "explanation_method":
+            model.get(
+                "shap_config",
+                {}
+            ).get(
+                "algorithm",
+                "kernel_shap",
+            ),
+
+        "explanation_background":
+            model.get(
+                "shap_config",
+                {}
+            ).get(
+                "background_source",
+                "original_real_samples_before_adasyn",
+            ),
 
         "top_evidence":
             evidence,

@@ -67,6 +67,8 @@ REPORT_DIR.mkdir(
 
 RANDOM_STATE = 42
 
+SHAP_BACKGROUND_SIZE = 64
+
 FEATURE_NAMES = [
     f"f{i}"
     for i in range(1, 18)
@@ -563,7 +565,7 @@ def train_paper_stacking():
         ),
 
         "model_version": (
-            "paper_v1"
+            "paper_v2_f6_full_stacking_shap"
         ),
 
         "feature_names": (
@@ -606,6 +608,32 @@ def train_paper_stacking():
             "p_svm",
             *FEATURE_NAMES,
         ],
+
+        # 完整 Stacking SHAP 的背景数据必须来自原始真实样本，
+        # 不能使用 ADASYN 合成样本。固定随机抽样保证可复现。
+        "shap_background_raw": X[
+            np.random.default_rng(
+                RANDOM_STATE
+            ).choice(
+                len(X),
+                size=min(
+                    SHAP_BACKGROUND_SIZE,
+                    len(X),
+                ),
+                replace=False,
+            )
+        ],
+
+        "shap_config": {
+            "explained_model": "complete_stacking_probability",
+            "algorithm": "kernel_shap",
+            "background_source": "original_real_samples_before_adasyn",
+            "background_size": min(
+                SHAP_BACKGROUND_SIZE,
+                len(X),
+            ),
+            "nsamples": 256,
+        },
     }
 
     model_path = (
