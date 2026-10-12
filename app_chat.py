@@ -528,6 +528,136 @@ def load_uploaded_dataset(file_path):
 # 9. 诊断结果格式化
 # ============================================================
 
+def format_feature_value(value):
+    """以适合工程阅读的精度展示特征值。"""
+
+    try:
+        return f"{float(value):.4f}"
+    except (TypeError, ValueError):
+        return str(value)
+
+
+def build_agent_analysis(report):
+    """将模型证据、适用域和维护建议整合为完整的 Agent 分析。"""
+
+    diagnosis = report.get("diagnosis", "未知")
+    probability = float(
+        report.get(
+            "stacking_probability",
+            report.get("risk_probability", 0.0),
+        )
+    )
+    threshold = float(report.get("classification_threshold", 0.5))
+    threshold_comparison = (
+        "低于"
+        if probability < threshold
+        else "不低于"
+    )
+
+    base_probabilities = report.get("base_probabilities") or {}
+    rf_probability = float(
+        base_probabilities.get("rf", report.get("rf_probability", 0.0))
+    )
+    xgb_probability = float(
+        base_probabilities.get("xgb", report.get("xgb_probability", 0.0))
+    )
+    svm_probability = float(
+        base_probabilities.get("svm", report.get("svm_probability", 0.0))
+    )
+
+    evidence = report.get("top_evidence") or []
+    positive_evidence = [
+        item for item in evidence
+        if float(item.get("shap_value", 0.0)) > 0
+    ]
+    negative_evidence = [
+        item for item in evidence
+        if float(item.get("shap_value", 0.0)) < 0
+    ]
+
+    lines = [
+        (
+            f"本次样本的 MSM-ADASYN-Stacking 最终诊断为“{diagnosis}”。"
+            f"Stacking 润滑失效概率为 **{probability:.2%}**，"
+            f"{threshold_comparison} {threshold:.0%} 分类阈值，"
+            f"因此输出“{diagnosis}”。"
+        ),
+    ]
+
+    if evidence:
+        dominant_evidence = evidence[0]
+        dominant_name = dominant_evidence.get(
+            "feature_name",
+            dominant_evidence.get("feature", "关键特征"),
+        )
+        dominant_shap = float(dominant_evidence.get("shap_value", 0.0))
+        direction = (
+            "轴承润滑不良"
+            if dominant_shap > 0
+            else "非轴承润滑不良"
+        )
+
+        lines.append(
+            (
+                f"完整 Stacking 的 Top SHAP 证据中，"
+                f"正向贡献 {len(positive_evidence)} 项、"
+                f"负向贡献 {len(negative_evidence)} 项。"
+                f"影响最大的“{dominant_name}”"
+                f"SHAP 为 {dominant_shap:+.4f}，"
+                f"主要推动模型向“{direction}”方向判断。"
+            )
+        )
+
+    base_probability_values = [
+        rf_probability,
+        xgb_probability,
+        svm_probability,
+    ]
+    base_spread = max(base_probability_values) - min(base_probability_values)
+
+    lines.append(
+        (
+            f"Level-0 基学习器的概率分别为："
+            f"RF={rf_probability:.2%}、"
+            f"XGBoost={xgb_probability:.2%}、"
+            f"SVM={svm_probability:.2%}。"
+            "这些概率反映各基学习器的独立判断，"
+            "最终结论以 Stacking 综合概率为准，不能简单相加或平均。"
+        )
+    )
+
+    if base_spread >= 0.20:
+        lines.append(
+            (
+                f"三个基学习器的最大概率差为 {base_spread:.2%}，"
+                "说明不同学习器对当前样本的敏感性存在差异；"
+                "最终仍采用 Stacking 的综合输出。"
+            )
+        )
+
+    domain = report.get("domain") or {}
+    domain_message = domain.get("message", "未返回模型适用域信息。")
+    if domain.get("validated", False):
+        lines.append(f"模型适用域：{domain_message}")
+    else:
+        lines.append(
+            f"模型适用域提示：{domain_message}"
+            "该结果可用于辅助判断，但应谨慎解释。"
+        )
+
+    advice = report.get("maintenance_advice") or []
+    if advice:
+        lines.append("后续建议：")
+        lines.extend(f"- {item}" for item in advice)
+
+    lines.append(
+        "说明：SHAP 用于刻画特征对完整 Stacking 最终概率的模型贡献，"
+        "不能单独视为已经证实的物理因果关系。"
+    )
+
+    return "\n\n".join(lines)
+
+
 def format_diagnosis_result(
     sample_number,
     sample,
@@ -665,7 +795,7 @@ def format_diagnosis_result(
     # --------------------------------------------
 
     lines.append("")
-    lines.append("### 判断依据")
+    lines.append("### 判断依据（模型证据）")
 
     evidence = report.get(
         "top_evidence",
@@ -673,43 +803,41 @@ def format_diagnosis_result(
     )
 
     if evidence:
+        positive_evidence = [
+            item for item in evidence
+            if float(item.get("shap_value", 0.0)) > 0
+        ]
+        negative_evidence = [
+            item for item in evidence
+            if float(item.get("shap_value", 0.0)) < 0
+        ]
 
-        for rank, item in enumerate(
-            evidence[:5],
-            start=1
-        ):
-
-            feature = item.get(
-                "feature",
-                "-"
+        lines.append(
+            (
+                f"Stacking 最终概率为 **{probability:.2%}**，"
+                f"分类阈值为 50%。当前 Top-{min(len(evidence), 5)} 证据中，"
+                f"{len(positive_evidence)} 项推动“轴承润滑不良”，"
+                f"{len(negative_evidence)} 项推动“非轴承润滑不良”。"
             )
+        )
 
-            name = item.get(
-                "feature_name",
-                "-"
-            )
-
-            value = item.get(
-                "feature_value",
-                0
-            )
-
-            shap_value = item.get(
-                "shap_value",
-                0
-            )
-
-            mechanism = item.get(
-                "mechanism",
-                ""
+        for rank, item in enumerate(evidence[:5], start=1):
+            feature = item.get("feature", "-")
+            name = item.get("feature_name", "-")
+            value = format_feature_value(item.get("feature_value", 0))
+            shap_value = float(item.get("shap_value", 0.0))
+            mechanism = item.get("mechanism", "")
+            direction = (
+                "推动模型判为轴承润滑不良"
+                if shap_value > 0
+                else "推动模型判为非轴承润滑不良"
             )
 
             lines.append(
                 (
-                    f"{rank}. **{feature} {name}**  \n"
-                    f"   特征值：`{value}`  \n"
-                    f"   SHAP：`{float(shap_value):+.4f}`  \n"
-                    f"   {mechanism}"
+                    f"{rank}. **{feature} {name}**：本次特征值为 `{value}`，"
+                    f"SHAP 为 `{shap_value:+.4f}`，{direction}。"
+                    f"{mechanism}"
                 )
             )
 
@@ -718,32 +846,6 @@ def format_diagnosis_result(
         lines.append(
             "当前报告未返回 SHAP 证据。"
         )
-
-    # --------------------------------------------
-    # 建议
-    # --------------------------------------------
-
-    advice = report.get(
-        "maintenance_advice",
-        []
-    )
-
-    if advice:
-
-        lines.append("")
-        lines.append("### 建议")
-
-        for item in advice:
-            lines.append(
-                f"- {item}"
-            )
-
-    lines.append("")
-
-    lines.append(
-        "> SHAP 表示完整 MSM-ADASYN-Stacking 最终概率的特征贡献，"
-        "也不应单独解释为已经证明的物理因果关系。"
-    )
 
     return "\n".join(
         lines
@@ -1096,7 +1198,7 @@ if prompt:
                         assistant_text = (
                             f"{diagnosis_text}\n\n---\n\n"
                             f"### AI Agent 分析\n\n"
-                            f"{agent_answer}"
+                            f"{build_agent_analysis(st.session_state.last_report)}"
                         )
                     else:
                         assistant_text = agent_answer
