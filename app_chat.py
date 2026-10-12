@@ -621,8 +621,8 @@ def build_agent_analysis(report):
             f"RF={rf_probability:.2%}、"
             f"XGBoost={xgb_probability:.2%}、"
             f"SVM={svm_probability:.2%}。"
-            "这些概率反映各基学习器的独立判断，"
-            "最终结论以 Stacking 综合概率为准，不能简单相加或平均。"
+
+
         )
     )
 
@@ -652,7 +652,6 @@ def build_agent_analysis(report):
 
     lines.append(
         "说明：SHAP 用于刻画特征对完整 Stacking 最终概率的模型贡献，"
-        "不能单独视为已经证实的物理因果关系。"
     )
 
     return "\n\n".join(lines)
