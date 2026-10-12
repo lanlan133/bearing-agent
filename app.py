@@ -327,17 +327,13 @@ if (
     report = st.session_state["single_report"]
 
     # ========================================================
-    # 11. Agent 三态诊断结果
+    # 11. Agent 二分类诊断结果
     # ========================================================
 
     if diagnosis_mode == "单样本诊断" and report is not None:
         st.subheader(
             "Agent 最终决策"
         )
-
-        decision_status = report[
-            "decision_status"
-        ]
 
         decision = report[
             "diagnosis"
@@ -351,31 +347,20 @@ if (
         )
 
     # --------------------------------------------------------
-    # 三态状态框
+    # 二分类状态框
     # --------------------------------------------------------
 
-    if decision_status == "auto_normal":
-
+    if decision == "非轴承润滑不良":
         st.success(
-            f"🟢 自动诊断：{decision}"
+            f"🟢 诊断结果：{decision}"
         )
-
-    elif decision_status == "auto_fault":
-
+    elif decision == "轴承润滑不良":
         st.error(
-            f"🔴 自动诊断：{decision}"
+            f"🔴 诊断结果：{decision}"
         )
-
-    elif decision_status == "review":
-
-        st.warning(
-            "🟡 建议人工复核"
-        )
-
     else:
-
         st.error(
-            f"未知决策状态：{decision_status}"
+            f"未知诊断结果：{decision}"
         )
 
     # --------------------------------------------------------
@@ -448,56 +433,6 @@ if (
         )
 
     # ========================================================
-    # Review Policy
-    # ========================================================
-
-    st.subheader(
-        "Review Policy"
-    )
-
-    policy = report[
-        "review_policy"
-    ]
-
-    p1, p2, p3 = st.columns(3)
-
-    with p1:
-        st.metric(
-            "正常阈值",
-            f"< {policy['lower_threshold']:.2f}"
-        )
-
-    with p2:
-        st.metric(
-            "复核区间",
-            (
-                f"{policy['lower_threshold']:.2f}"
-                f" ~ "
-                f"{policy['upper_threshold']:.2f}"
-            )
-        )
-
-    with p3:
-        st.metric(
-            "故障阈值",
-            f"> {policy['upper_threshold']:.2f}"
-        )
-
-    if report["needs_review"]:
-        st.warning(
-            report["review_reason"]
-        )
-        st.info(
-            "当前样本不会直接作为自动正常或自动故障结果使用，"
-            "建议结合频谱、完整Stacking SHAP证据和现场运行信息进行二次复核。"
-        )
-    else:
-        st.success(
-            "当前样本位于自动诊断区间，无需触发 Review。"
-        )
-
-
-    # ========================================================
     # 12. 模型适用域
     # ========================================================
 
@@ -548,12 +483,6 @@ if (
     st.write(
         f"**Stacking 最终概率：** {probability:.4f}"
     )
-
-    st.write(
-        f"**Agent 三态决策状态：** "
-        f"{report['decision_status']}"
-    )
-
 
     # ========================================================
     # 14. Top SHAP 证据
@@ -822,10 +751,6 @@ if (
         "model_diagnosis"
     ]
 
-    decision_status = report[
-        "decision_status"
-    ]
-
     st.write(
         f"**真实标签：** {true_label}"
     )
@@ -838,46 +763,10 @@ if (
         f"**Agent 最终决策：** {report['diagnosis']}"
     )
 
-    # --------------------------------------------------------
-    # Review样本
-    # --------------------------------------------------------
-
-    if decision_status == "review":
-
-        if model_diagnosis == true_label:
-
-            st.warning(
-                "该样本被 Agent 送入复核区间。"
-                "Stacking 综合判断与真实标签一致，"
-                "但 Agent 为降低高风险误判选择不自动放行。"
-            )
-
-        else:
-
-            st.warning(
-                "该样本被 Agent 成功送入复核区间，"
-                "避免了 Stacking 错误结果被直接自动输出。"
-            )
-
-    # --------------------------------------------------------
-    # 自动诊断样本
-    # --------------------------------------------------------
-
+    if report["diagnosis"] == true_label:
+        st.success("Agent 诊断与真实标签一致。")
     else:
-
-        if report[
-            "diagnosis"
-        ] == true_label:
-
-            st.success(
-                "Agent 自动诊断与真实标签一致。"
-            )
-
-        else:
-
-            st.error(
-                "Agent 自动诊断与真实标签不一致。"
-            )
+        st.error("Agent 诊断与真实标签不一致。")
 
 
     # ============================================================
@@ -1075,52 +964,24 @@ if diagnosis_mode == "批量诊断":
             "decision_distribution"
         ]
 
-        c1, c2, c3, c4 = st.columns(
-            4
-        )
+        c1, c2 = st.columns(2)
 
         with c1:
 
             st.metric(
-                "🟢 自动正常",
+                "🟢 非轴承润滑不良",
                 distribution[
-                    "auto_normal"
+                    "non_bearing_lubrication_fault"
                 ]
             )
 
         with c2:
-
             st.metric(
-                "🟡 建议复核",
+                "🔴 轴承润滑不良",
                 distribution[
-                    "review"
+                    "bearing_lubrication_fault"
                 ]
             )
-
-        with c3:
-
-            st.metric(
-                "🔴 自动故障",
-                distribution[
-                    "auto_fault"
-                ]
-            )
-
-        with c4:
-
-            st.metric(
-                "复核率",
-                f"{distribution['review_rate']:.2%}"
-            )
-
-        # ====================================================
-        # 自动诊断率
-        # ====================================================
-
-        st.metric(
-            "自动诊断率",
-            f"{distribution['auto_rate']:.2%}"
-        )
 
         # ====================================================
         # 高风险 Top-10
@@ -1161,59 +1022,15 @@ if diagnosis_mode == "批量诊断":
         )
 
         # ====================================================
-        # Review 样本
+        # 轴承润滑不良样本
         # ====================================================
 
         st.subheader(
-            "建议人工复核样本"
-        )
-
-        review_df = result_df[
-            result_df[
-                "decision_status"
-            ] == "review"
-            ].copy()
-
-        if len(review_df) > 0:
-
-            review_display = review_df[
-                [
-                    "sample_index",
-                    "equipment_id",
-                    "measurement_point",
-                    "risk_probability",
-                    "agent_decision",
-                ]
-            ].rename(
-                columns={
-                    "risk_probability": "Stacking最终概率",
-                    "agent_decision": "Agent最终决策",
-                }
-            )
-
-            st.dataframe(
-                review_display,
-                width="stretch",
-            )
-
-        else:
-
-            st.success(
-                "当前批次没有需要人工复核的样本。"
-            )
-
-        # ====================================================
-        # 自动故障样本
-        # ====================================================
-
-        st.subheader(
-            "自动判定轴承润滑不良"
+            "轴承润滑不良样本"
         )
 
         fault_df = result_df[
-            result_df[
-                "decision_status"
-            ] == "auto_fault"
+            result_df["agent_decision"] == "轴承润滑不良"
             ].copy()
 
         if len(fault_df) > 0:
@@ -1240,7 +1057,7 @@ if diagnosis_mode == "批量诊断":
         else:
 
             st.info(
-                "当前批次没有自动故障样本。"
+                "当前批次没有轴承润滑不良样本。"
             )
 
         # ====================================================

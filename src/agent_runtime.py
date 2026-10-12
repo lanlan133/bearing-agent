@@ -27,7 +27,6 @@ def _requires_diagnosis(
         "润滑",
         "风险",
         "概率",
-        "复核",
     ]
 
     return any(
@@ -122,28 +121,6 @@ def _validate_finish(
             "用户要求进行新的诊断，"
             "但尚未成功执行诊断工具。",
         )
-
-    # --------------------------------------------------------
-    # Review样本的回答必须明确包含复核提示
-    # --------------------------------------------------------
-
-    last_report = (
-        context.get(
-            "last_report"
-        )
-        or {}
-    )
-
-    if last_report.get(
-            "needs_review",
-            False,
-    ):
-        if "复核" not in answer:
-            return (
-                False,
-                "当前样本需要人工复核，"
-                "最终回答必须明确说明复核要求。",
-            )
 
     return True, None
 

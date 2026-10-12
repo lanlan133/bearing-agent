@@ -132,7 +132,6 @@ Python程序已经完成：
 3. MSM-ADASYN-Stacking综合诊断
 4. RF、XGBoost、SVM三个Level-0基学习器概率计算
 5. 完整MSM-ADASYN-Stacking最终概率的SHAP解释
-6. Review Policy决策
 
 你只能依据输入JSON中的事实生成诊断报告。
 
@@ -143,11 +142,11 @@ Python程序已经完成：
 3. 不得修改MSM-ADASYN-Stacking原始结论。
 4. 不得修改Stacking最终概率或Level-0基学习器概率。
 5. 不得修改完整Stacking SHAP数值。
-6. 如果Agent决定“建议复核”，不能擅自改成正常或故障。
+6. 最终诊断只能表述为“非轴承润滑不良”或“轴承润滑不良”。
 7. SHAP表示17维MSM特征对完整Stacking最终概率的贡献，
    但不等于物理因果证明。
 8. 不要凭空添加传感器测量值、温度、油液检测结果或维修历史。
-9. 维护建议应使用“建议检查、建议复核”等工程措辞，
+9. 维护建议应使用“建议检查、建议监测”等工程措辞，
    不得把模型结果描述成绝对物理事实。
 
 输出中文报告。
@@ -172,21 +171,6 @@ def build_single_prompt(
                 "final_decision":
                     report.get(
                         "decision"
-                    ),
-
-                "decision_status":
-                    report.get(
-                        "decision_status"
-                    ),
-
-                "needs_review":
-                    report.get(
-                        "needs_review"
-                    ),
-
-                "review_reason":
-                    report.get(
-                        "review_reason"
                     ),
 
                 "model_diagnosis":
@@ -229,18 +213,13 @@ def build_single_prompt(
                         "risk_level"
                     ),
 
-                "review_policy":
-                    report.get(
-                        "review_policy"
-                    ),
-
                 "domain":
                     report.get(
                         "domain"
                     ),
 
                 "explanation_model":
-                    "XGBoost base learner",
+                    "full MSM-ADASYN-Stacking model",
             },
 
         "top_evidence":
@@ -280,15 +259,13 @@ def build_single_prompt(
 # 轴承润滑状态诊断报告
 
 ## 1. 诊断结论
-说明Agent最终决策、MSM-ADASYN-Stacking综合诊断、
+说明MSM-ADASYN-Stacking二分类诊断结论、
 Stacking最终概率和风险等级。
 
 ## 2. 模型判别依据
 列出RF、XGBoost、SVM三个Level-0基学习器概率，
-并解释Stacking最终概率与Review Policy的关系。
-当前冻结的Review Policy复核区间为0.01～0.96；
-同时应以输入JSON中的实际阈值为准。
-如果进入复核区，必须明确说明系统没有自动放行。
+并说明Stacking以0.5为分类阈值：低于0.5为非轴承润滑不良，
+不低于0.5为轴承润滑不良。
 
 ## 3. 完整Stacking关键SHAP证据
 重点解释完整Stacking最终概率的Top SHAP特征。
@@ -304,10 +281,9 @@ Stacking最终概率和风险等级。
 说明适用域和模型不确定性。
 
 ## 6. 维护建议
-根据最终决策给出分层建议：
-自动正常：继续趋势监测；
-建议复核：优先人工复核和多源信息确认；
-自动故障：建议尽快检查润滑状态及相关系统。
+根据最终二分类诊断给出建议：
+非轴承润滑不良：继续趋势监测；
+轴承润滑不良：建议尽快检查润滑状态及相关系统。
 
 报告语言简洁、专业、适合工程人员阅读。
 """
@@ -481,48 +457,13 @@ def build_local_single_report(
     )
 
     lines.append(
-        "## 2. Review Policy"
+        "## 2. 分类规则"
     )
-
-    review_policy = report.get(
-        "review_policy",
-        {}
-    )
-    lower_threshold = float(
-        review_policy.get("lower_threshold", 0.01)
-    )
-    upper_threshold = float(
-        review_policy.get("upper_threshold", 0.96)
-    )
-
     lines.append(
-        (
-            "当前冻结复核区间："
-            f"{lower_threshold:.2f}～{upper_threshold:.2f}。"
-        )
+        "Stacking 最终概率以 0.5 为分类阈值：低于 0.5 为非轴承润滑不良，"
+        "不低于 0.5 为轴承润滑不良。"
     )
-
-    if report.get(
-        "needs_review"
-    ):
-
-        lines.append(
-            (
-                "该样本已进入人工复核区间。"
-                f"{report.get('review_reason', '')}"
-            )
-        )
-
-    else:
-
-        lines.append(
-            "当前样本位于自动诊断区间。"
-        )
-
-    lines.append(
-        ""
-    )
-
+    lines.append("")
     lines.append(
         "## 3. 完整Stacking SHAP证据"
     )
@@ -580,13 +521,12 @@ BATCH_SYSTEM_PROMPT = """
 
 必须遵守：
 
-1. 不得修改自动正常、建议复核、自动故障数量。
+1. 不得修改非轴承润滑不良、轴承润滑不良数量。
 2. 不得修改Stacking最终概率或RF、XGBoost、SVM的Level-0概率。
 3. 不得虚构设备异常。
 4. 不得把SHAP解释成物理因果证明。
 5. 对高风险设备应表述为“建议优先检查”。
-6. 对Review设备应强调需要人工或多源信息复核。
-7. 输出应适合设备维护和状态监测汇报。
+6. 输出应适合设备维护和状态监测汇报。
 """
 
 
@@ -618,11 +558,9 @@ def build_batch_prompt(
 ## 1. 巡检概况
 说明本次处理样本数、程序失败数。
 
-## 2. 三态诊断分布
-总结自动正常、建议复核、自动故障数量，
-以及自动诊断率、复核率。
-说明三态决策使用Stacking最终概率和冻结的Review Policy，
-当前复核区间为0.01～0.96。
+## 2. 二分类诊断分布
+总结非轴承润滑不良、轴承润滑不良数量。
+说明诊断使用Stacking最终概率和0.5分类阈值。
 
 ## 3. 重点风险设备
 根据 high_risk_top10 和 equipment_top10
@@ -633,17 +571,14 @@ def build_batch_prompt(
 根据 top_global_features
 总结本批数据中常见的完整Stacking SHAP特征。
 
-## 5. 人工复核建议
-重点说明Review样本需要进一步检查的原因。
-
-## 6. 维护优先级建议
+## 5. 维护优先级建议
 形成：
 高优先级
 中优先级
 常规监测
 三层建议。
 
-## 7. 使用限制
+## 6. 使用限制
 明确说明：
 MSM-ADASYN-Stacking、完整Stacking SHAP和Agent用于状态监测辅助，
 不能代替现场检查和专业维护判断。
@@ -744,26 +679,14 @@ def build_local_batch_report(
             f"个样本。"
         ),
         "",
-        "## 2. 三态诊断分布",
+        "## 2. 二分类诊断分布",
         (
-            f"- 自动正常："
-            f"{distribution.get('auto_normal', 0)}"
+            f"- 非轴承润滑不良："
+            f"{distribution.get('non_bearing_lubrication_fault', 0)}"
         ),
         (
-            f"- 建议复核："
-            f"{distribution.get('review', 0)}"
-        ),
-        (
-            f"- 自动故障："
-            f"{distribution.get('auto_fault', 0)}"
-        ),
-        (
-            f"- 自动诊断率："
-            f"{float(distribution.get('auto_rate', 0)):.2%}"
-        ),
-        (
-            f"- 复核率："
-            f"{float(distribution.get('review_rate', 0)):.2%}"
+            f"- 轴承润滑不良："
+            f"{distribution.get('bearing_lubrication_fault', 0)}"
         ),
         "",
         "## 3. 高风险样本",
@@ -797,8 +720,8 @@ def build_local_batch_report(
             "",
             "## 4. 建议",
             (
-                "建议优先复核高风险及Review样本，"
-                "并结合现场工况、温度、噪声和维护记录进行确认。"
+                "建议优先检查高风险的轴承润滑不良样本，"
+                "并结合现场工况、温度、噪声和维护记录制定维护计划。"
             ),
         ]
     )
@@ -886,14 +809,12 @@ MSM-17D 特征
 → RF、XGBoost、SVM Level-0基学习器
 → Stacking综合诊断与最终概率
 → 完整Stacking最终概率SHAP解释
-→ Review Policy（复核区间0.01～0.96）
-→ Agent 三态决策
+→ Agent 二分类决策（阈值0.5）
 
-三态决策包括：
+最终诊断包括：
 
-1. 非轴承润滑不良（自动正常）
-2. 建议复核
-3. 轴承润滑不良（自动故障）
+1. 非轴承润滑不良
+2. 轴承润滑不良
 
 请根据下面的批量诊断数据生成专业的设备状态诊断报告。
 
@@ -909,9 +830,8 @@ MSM-17D 特征
 
 说明：
 - 本次分析样本数量
-- 自动正常数量
-- 建议复核数量
-- 自动故障数量
+- 非轴承润滑不良数量
+- 轴承润滑不良数量
 - 整体风险情况
 
 ## 2. 高风险设备分析
@@ -928,13 +848,7 @@ MSM-17D 特征
 
 不要虚构数据中不存在的设备。
 
-## 3. 建议人工复核样本
-
-重点分析 Agent 判定为“建议复核”的样本。
-
-说明为什么这些样本需要人工确认。
-
-## 4. 设备风险排序
+## 3. 设备风险排序
 
 按照风险程度给出：
 
@@ -944,7 +858,7 @@ MSM-17D 特征
 
 的设备或样本。
 
-## 5. 维护建议
+## 4. 维护建议
 
 结合批量诊断结果给出维护建议，包括：
 
@@ -954,7 +868,7 @@ MSM-17D 特征
 - 温度检查
 - 异常设备持续监测
 
-## 6. 总体结论
+## 5. 总体结论
 
 总结本批次设备运行状态。
 
@@ -965,7 +879,6 @@ MSM-17D 特征
 3. 不得虚构不存在的数据。
 4. DeepSeek 只负责解释和总结。
 5. Agent 的诊断结果是最终机器决策依据。
-6. 对“建议复核”样本必须明确说明需要人工复核。
 """
 
     response = client.chat.completions.create(
@@ -1161,8 +1074,7 @@ MSM-17D
    - 三个基学习器概率
    - SHAP 特征证据
    进行解释。
-7. 如果样本位于 Review Policy 复核区，
-   应明确说明需要人工复核。
+7. 最终诊断只能表述为“非轴承润滑不良”或“轴承润滑不良”。
 8. 使用中文回答。
 9. 优先使用清晰、工程化、容易理解的表达。
 """

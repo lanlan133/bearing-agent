@@ -65,7 +65,7 @@ TOOL_DEFINITIONS = [
         "description": (
             "使用MSM-ADASYN-Stacking"
             "诊断指定样本，返回Stacking最终概率、"
-            "三个Level-0概率、Review Policy结果"
+            "三个Level-0概率、二分类诊断结果"
             "和判断依据。"
         ),
         "arguments": {
@@ -280,34 +280,9 @@ def _compact_report(
         report: dict[str, Any]
 ) -> dict[str, Any]:
 
-    review_policy = (
-        report.get(
-            "review_policy"
-        )
-        or {}
-    )
-
     return {
         "decision":
             report.get("decision"),
-
-        "decision_status":
-            report.get(
-                "decision_status"
-            ),
-
-        "needs_review":
-            bool(
-                report.get(
-                    "needs_review",
-                    False,
-                )
-            ),
-
-        "review_reason":
-            report.get(
-                "review_reason"
-            ),
 
         "model_name":
             report.get("model_name"),
@@ -361,30 +336,6 @@ def _compact_report(
 
         "risk_level":
             report.get("risk_level"),
-
-        "review_policy": {
-            "lower_threshold":
-                review_policy.get(
-                    "lower_threshold",
-                    0.01,
-                ),
-
-            "upper_threshold":
-                review_policy.get(
-                    "upper_threshold",
-                    0.96,
-                ),
-
-            "version":
-                review_policy.get(
-                    "version"
-                ),
-
-            "method":
-                review_policy.get(
-                    "method"
-                ),
-        },
 
         "domain":
             report.get(
@@ -678,19 +629,6 @@ def diagnose_range(
                         "decision"
                     ),
 
-                "decision_status":
-                    report.get(
-                        "decision_status"
-                    ),
-
-                "needs_review":
-                    bool(
-                        report.get(
-                            "needs_review",
-                            False,
-                        )
-                    ),
-
                 "model_diagnosis":
                     report.get(
                         "model_diagnosis"
@@ -767,24 +705,17 @@ def diagnose_range(
         "failed_count":
             len(errors),
 
-        "auto_normal_count":
+        "non_bearing_lubrication_fault_count":
             sum(
-                item["decision_status"]
-                == "auto_normal"
+                item["decision"]
+                == "非轴承润滑不良"
                 for item in results
             ),
 
-        "review_count":
+        "bearing_lubrication_fault_count":
             sum(
-                item["decision_status"]
-                == "review"
-                for item in results
-            ),
-
-        "auto_fault_count":
-            sum(
-                item["decision_status"]
-                == "auto_fault"
+                item["decision"]
+                == "轴承润滑不良"
                 for item in results
             ),
 

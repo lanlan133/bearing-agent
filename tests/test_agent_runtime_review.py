@@ -55,7 +55,7 @@ context = {
 result = run_agent_task(
     user_goal=(
         "请诊断第5条数据，"
-        "并说明是否需要人工复核。"
+        "并给出二分类诊断结果。"
     ),
     context=context,
     max_steps=5,
@@ -67,7 +67,7 @@ print(
 )
 
 print(
-    "人工复核样本测试"
+    "二分类诊断样本测试"
 )
 
 print(
@@ -106,4 +106,7 @@ print(
 
 
 assert result["status"] == "completed"
-assert "复核" in result["answer"]
+assert result["context"]["last_report"]["decision"] in {
+    "非轴承润滑不良",
+    "轴承润滑不良",
+}

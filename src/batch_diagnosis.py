@@ -53,11 +53,6 @@ HIGH_RISK_FILE = (
     / "high_risk_samples.csv"
 )
 
-REVIEW_FILE = (
-    REPORT_DIR
-    / "review_samples.csv"
-)
-
 
 # ============================================================
 # 2. 安全转换
@@ -224,20 +219,6 @@ def flatten_result(
             str(
                 report[
                     "decision"
-                ]
-            ),
-
-        "decision_status":
-            str(
-                report[
-                    "decision_status"
-                ]
-            ),
-
-        "needs_review":
-            bool(
-                report[
-                    "needs_review"
                 ]
             ),
 
@@ -458,7 +439,7 @@ def run_batch_diagnosis(
                     f"| p="
                     f"{row['risk_probability']:.4f} "
                     f"| "
-                    f"{row['decision_status']}"
+                    f"{row['agent_decision']}"
                 )
 
         except Exception as exc:
@@ -511,55 +492,23 @@ def run_batch_diagnosis(
     )
 
     # ========================================================
-    # 7. 三态统计
+    # 7. 二分类统计
     # ========================================================
 
-    auto_normal_df = result_df[
+    non_bearing_df = result_df[
         result_df[
-            "decision_status"
-        ] == "auto_normal"
+            "agent_decision"
+        ] == "非轴承润滑不良"
     ].copy()
 
-    review_df = result_df[
+    bearing_fault_df = result_df[
         result_df[
-            "decision_status"
-        ] == "review"
-    ].copy()
-
-    auto_fault_df = result_df[
-        result_df[
-            "decision_status"
-        ] == "auto_fault"
+            "agent_decision"
+        ] == "轴承润滑不良"
     ].copy()
 
     total = len(
         result_df
-    )
-
-    auto_count = (
-        len(
-            auto_normal_df
-        )
-        +
-        len(
-            auto_fault_df
-        )
-    )
-
-    review_count = len(
-        review_df
-    )
-
-    auto_rate = (
-        auto_count
-        /
-        total
-    )
-
-    review_rate = (
-        review_count
-        /
-        total
     )
 
     # ========================================================
@@ -577,20 +526,6 @@ def run_batch_diagnosis(
 
     high_risk_df.to_csv(
         HIGH_RISK_FILE,
-        index=False,
-        encoding="utf-8-sig"
-    )
-
-    review_df = (
-        review_df
-        .sort_values(
-            "risk_probability",
-            ascending=False
-        )
-    )
-
-    review_df.to_csv(
-        REVIEW_FILE,
         index=False,
         encoding="utf-8-sig"
     )
@@ -676,17 +611,12 @@ def run_batch_diagnosis(
                 "max"
             ),
 
-            review_count=(
-                "needs_review",
-                "sum"
-            ),
-
-            auto_fault_count=(
-                "decision_status",
+            bearing_lubrication_fault_count=(
+                "agent_decision",
                 lambda x:
                 int(
                     np.sum(
-                        x == "auto_fault"
+                        x == "轴承润滑不良"
                     )
                 )
             ),
@@ -745,33 +675,18 @@ def run_batch_diagnosis(
 
         "decision_distribution": {
 
-            "auto_normal":
+            "non_bearing_lubrication_fault":
                 int(
                     len(
-                        auto_normal_df
+                        non_bearing_df
                     )
                 ),
 
-            "review":
-                int(
-                    review_count
-                ),
-
-            "auto_fault":
+            "bearing_lubrication_fault":
                 int(
                     len(
-                        auto_fault_df
+                        bearing_fault_df
                     )
-                ),
-
-            "auto_rate":
-                float(
-                    auto_rate
-                ),
-
-            "review_rate":
-                float(
-                    review_rate
                 ),
         },
 
@@ -835,8 +750,7 @@ def run_batch_diagnosis(
                     "sample_count",
                     "mean_risk_probability",
                     "max_risk_probability",
-                    "review_count",
-                    "auto_fault_count",
+                    "bearing_lubrication_fault_count",
                 ]
             ]
             .head(
@@ -891,33 +805,18 @@ def run_batch_diagnosis(
         f"{len(errors)}"
     )
 
-    print("\n三态分布")
+    print("\n二分类诊断分布")
 
     print("-" * 85)
 
     print(
-        f"🟢 自动正常: "
-        f"{len(auto_normal_df)}"
+        f"非轴承润滑不良: "
+        f"{len(non_bearing_df)}"
     )
 
     print(
-        f"🟡 建议复核: "
-        f"{review_count}"
-    )
-
-    print(
-        f"🔴 自动故障: "
-        f"{len(auto_fault_df)}"
-    )
-
-    print(
-        f"自动诊断率: "
-        f"{auto_rate:.2%}"
-    )
-
-    print(
-        f"复核率: "
-        f"{review_rate:.2%}"
+        f"轴承润滑不良: "
+        f"{len(bearing_fault_df)}"
     )
 
     print("\n风险最高 Top-10")

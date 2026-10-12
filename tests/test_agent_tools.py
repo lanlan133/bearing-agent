@@ -111,13 +111,6 @@ print(
 )
 
 print(
-    "是否需要复核：",
-    diagnosis[
-        "needs_review"
-    ]
-)
-
-print(
     "Level-0概率：",
     diagnosis[
         "level_0_probabilities"

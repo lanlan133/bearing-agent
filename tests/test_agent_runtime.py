@@ -55,7 +55,7 @@ context = {
 result = run_agent_task(
     user_goal=
         "请诊断第1条数据，"
-        "并说明是否需要人工复核。",
+        "并给出二分类诊断结果。",
 
     context=
         context,
@@ -114,7 +114,7 @@ print(
 
 follow_up_result = run_agent_task(
     user_goal=
-        "为什么这个结果不需要人工复核？",
+        "为什么得到这个诊断结果？",
 
     context=
         result["context"],

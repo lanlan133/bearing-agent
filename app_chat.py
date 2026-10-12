@@ -270,7 +270,7 @@ st.markdown(
     """
     <div class="chat-hero">
         <h1>轴承润滑诊断智能助手</h1>
-        <p>MSM-17D · MSM-ADASYN-Stacking · Review Policy · 智能诊断对话</p>
+        <p>MSM-17D · MSM-ADASYN-Stacking · 智能诊断对话</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -578,25 +578,9 @@ def format_diagnosis_result(
         )
     )
 
-    review_policy = report.get(
-        "review_policy",
-        {}
-    )
-    lower_threshold = float(
-        review_policy.get("lower_threshold", 0.01)
-    )
-    upper_threshold = float(
-        review_policy.get("upper_threshold", 0.96)
-    )
-
     risk_level = report.get(
         "risk_level",
         "未知"
-    )
-
-    decision_status = report.get(
-        "decision_status",
-        ""
     )
 
     lines = []
@@ -673,32 +657,8 @@ def format_diagnosis_result(
     )
 
     lines.append(
-        "**Review Policy："
-        f"{lower_threshold:.2f}～{upper_threshold:.2f}**"
-    )
-
-    lines.append(
         f"**风险等级：{risk_level}**"
     )
-
-    if decision_status == "review":
-
-        lines.append("")
-
-        lines.append(
-            "⚠️ **该样本位于 Review 区间，"
-            "系统建议进行人工复核。**"
-        )
-
-        review_reason = report.get(
-            "review_reason"
-        )
-
-        if review_reason:
-
-            lines.append(
-                f"\n复核原因：{review_reason}"
-            )
 
     # --------------------------------------------
     # 完整 Stacking SHAP
@@ -1036,8 +996,7 @@ if prompt:
                     human_number = sample_index + 1
                     agent_goal = (
                         f"请诊断第{human_number}条数据，"
-                        "给出完整诊断结果，并说明"
-                        "是否需要人工复核。"
+                        "给出完整的二分类诊断结果。"
                     )
                     spinner_text = (
                         f"Agent 正在规划并诊断第 "

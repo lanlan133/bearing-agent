@@ -16,16 +16,6 @@ from diagnosis_tool import (
 PROJECT_ROOT = Path(
     __file__
 ).resolve().parents[1]
-# ============================================================
-# Review Policy
-# ============================================================
-
-REVIEW_POLICY_FILE = (
-    PROJECT_ROOT
-    / "models"
-    / "review_policy.json"
-)
-
 REPORT_DIR = (
     PROJECT_ROOT
     / "reports"
@@ -43,164 +33,6 @@ REPORT_DIR.mkdir(
 # ============================================================
 
 MODEL_VALIDATED_SAMPLING_RATE = 10240.0
-# ============================================================
-# Review Policy 加载
-# ============================================================
-
-def load_review_policy(
-        policy_file=REVIEW_POLICY_FILE
-):
-    """
-    加载基于 Paper Stacking 多随机种子留出验证冻结的 Review Policy。
-
-    该 Policy 不是新的分类模型，
-    而是 MSM-ADASYN-Stacking 输出之后的 Agent 决策层。
-    """
-
-    policy_file = Path(
-        policy_file
-    )
-
-    if not policy_file.exists():
-
-        raise FileNotFoundError(
-            f"找不到 Review Policy: "
-            f"{policy_file}"
-        )
-
-    with open(
-        policy_file,
-        "r",
-        encoding="utf-8"
-    ) as f:
-
-        policy = json.load(
-            f
-        )
-
-    required_keys = [
-        "lower_threshold",
-        "upper_threshold",
-    ]
-
-    for key in required_keys:
-
-        if key not in policy:
-
-            raise KeyError(
-                f"Review Policy 缺少字段: {key}"
-            )
-
-    return policy
-
-
-# ============================================================
-# 应用 Review Policy
-# ============================================================
-
-def apply_review_policy(
-        probability,
-        policy
-):
-    """
-    三态决策：
-
-    p < lower
-        -> 自动判定非轴承润滑不良
-
-    lower <= p <= upper
-        -> 建议复核
-
-    p > upper
-        -> 自动判定轴承润滑不良
-    """
-
-    probability = float(
-        probability
-    )
-
-    lower = float(
-        policy[
-            "lower_threshold"
-        ]
-    )
-
-    upper = float(
-        policy[
-            "upper_threshold"
-        ]
-    )
-
-    if probability < lower:
-
-        return {
-            "decision":
-                "非轴承润滑不良",
-
-            "decision_status":
-                "auto_normal",
-
-            "needs_review":
-                False,
-
-            "review_reason":
-                None,
-
-            "lower_threshold":
-                lower,
-
-            "upper_threshold":
-                upper,
-        }
-
-    if probability > upper:
-
-        return {
-            "decision":
-                "轴承润滑不良",
-
-            "decision_status":
-                "auto_fault",
-
-            "needs_review":
-                False,
-
-            "review_reason":
-                None,
-
-            "lower_threshold":
-                lower,
-
-            "upper_threshold":
-                upper,
-        }
-
-    return {
-        "decision":
-            "建议复核",
-
-        "decision_status":
-            "review",
-
-        "needs_review":
-            True,
-
-        "review_reason":
-            (
-                f"Stacking 润滑失效概率 "
-                f"{probability:.4f} "
-                f"位于冻结的复核区间 "
-                f"[{lower:.2f}, {upper:.2f}] 内。"
-            ),
-
-        "lower_threshold":
-            lower,
-
-        "upper_threshold":
-            upper,
-    }
-
-
 # ============================================================
 # 3. 特征组映射
 # ============================================================
@@ -615,11 +447,11 @@ def build_maintenance_advice(
         return [
             (
                 "当前样本不在模型主要验证采样率范围内，"
-                "建议优先复核采集参数或使用匹配采样率的模型。"
+                "建议优先检查采集参数或使用匹配采样率的模型。"
             ),
             (
                 "可结合原始时域波形、频谱和设备运行记录"
-                "进行人工复核。"
+                "进一步确认结果。"
             ),
         ]
 
@@ -733,18 +565,7 @@ def build_agent_report(
     ]
 
     # ========================================================
-    # 4. Review Policy
-    # ========================================================
-
-    policy = load_review_policy()
-
-    review_decision = apply_review_policy(
-        probability,
-        policy
-    )
-
-    # ========================================================
-    # 5. 机理解释
+    # 4. 机理解释
     # ========================================================
 
     mechanism = build_mechanism_explanation(
@@ -752,11 +573,7 @@ def build_agent_report(
     )
 
     # ========================================================
-    # 6. 维护建议
-    #
-    # 注意：
-    # 这里仍使用原始模型诊断结果生成基础建议，
-    # 后面如果进入 review 再附加复核建议。
+    # 5. 维护建议
     # ========================================================
 
     maintenance = build_maintenance_advice(
@@ -764,59 +581,23 @@ def build_agent_report(
         domain_status
     )
 
-    if review_decision[
-        "needs_review"
-    ]:
-
-        maintenance = [
-            (
-                "当前结果处于模型复核区间，"
-                "不建议直接依据单次自动诊断执行维护决策。"
-            ),
-            (
-                "建议结合原始时域波形、频谱、"
-                "动态ROI及近期振动趋势进行二次复核。"
-            ),
-            (
-                "建议结合温度、噪声、润滑维护记录"
-                "和设备运行工况进行交叉确认。"
-            ),
-        ] + maintenance
-
     # ========================================================
-    # 7. 最终Agent结果
+    # 6. 最终 Agent 结果
+    #
+    # 直接采用 MSM-ADASYN-Stacking 的二分类结论：
+    # p < 0.5 为“非轴承润滑不良”，p >= 0.5 为“轴承润滑不良”。
+    # 不再叠加额外的决策层或产生第三种结果。
     # ========================================================
 
     report = {
 
         # ----------------------------------------------------
-        # Agent 最终三态决策
+        # Agent 最终二分类决策
         # ----------------------------------------------------
 
-        "diagnosis":
-            review_decision[
-                "decision"
-            ],
+        "diagnosis": model_diagnosis,
 
-        "decision":
-            review_decision[
-                "decision"
-            ],
-
-        "decision_status":
-            review_decision[
-                "decision_status"
-            ],
-
-        "needs_review":
-            review_decision[
-                "needs_review"
-            ],
-
-        "review_reason":
-            review_decision[
-                "review_reason"
-            ],
+        "decision": model_diagnosis,
 
         # ----------------------------------------------------
         # 保留 Stacking 与 Level-0 输出，避免丢失模型事实
@@ -896,47 +677,6 @@ def build_agent_report(
             probability_description(
                 probability
             ),
-
-        # ----------------------------------------------------
-        # Policy信息
-        # ----------------------------------------------------
-
-        "review_policy": {
-
-            "lower_threshold":
-                review_decision[
-                    "lower_threshold"
-                ],
-
-            "upper_threshold":
-                review_decision[
-                    "upper_threshold"
-                ],
-
-            "version":
-                policy.get(
-                    "version",
-                    "unknown"
-                ),
-
-            "method":
-                policy.get(
-                    "method",
-                    "unknown"
-                ),
-
-            "probability_field":
-                policy.get(
-                    "probability_field",
-                    "stacking_probability"
-                ),
-
-            "validation_metrics":
-                policy.get(
-                    "validation_metrics",
-                    {}
-                ),
-        },
 
         # ----------------------------------------------------
         # 适用域
@@ -1078,16 +818,6 @@ def print_agent_report(
     )
 
     print(
-        f"决策状态: "
-        f"{report['decision_status']}"
-    )
-
-    print(
-        f"Stacking原始结论: "
-        f"{report['model_diagnosis']}"
-    )
-
-    print(
         f"Stacking最终概率: "
         f"{report['stacking_probability']:.4f}"
     )
@@ -1108,24 +838,6 @@ def print_agent_report(
         f"模型判断: "
         f"{report['probability_interpretation']}"
     )
-
-    print(
-        f"是否需要复核: "
-        f"{report['needs_review']}"
-    )
-
-    print(
-        f"Review Policy: "
-        f"{report['review_policy']['lower_threshold']:.2f}"
-        f" ~ "
-        f"{report['review_policy']['upper_threshold']:.2f}"
-    )
-
-    if report["needs_review"]:
-        print(
-            f"复核原因: "
-            f"{report['review_reason']}"
-        )
 
     print("\n模型适用域:")
 

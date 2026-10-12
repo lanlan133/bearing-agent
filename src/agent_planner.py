@@ -35,13 +35,12 @@ PLANNER_SYSTEM_PROMPT = """
 
 1. 你不能自行计算或修改任何模型概率。
 2. 你不能修改MSM-ADASYN-Stacking的诊断结果。
-3. 你不能覆盖Review Policy的判断。
-4. 进入复核区间时，不能自动判定正常或故障。
-5. 你不能访问工具列表之外的文件或程序。
-6. 每次只能选择一个行动。
-7. 必须只返回一个合法JSON对象。
-8. 不要使用Markdown代码块。
-9. 不要在JSON前后添加解释文字。
+3. 诊断结论仅可为“非轴承润滑不良”或“轴承润滑不良”。
+4. 你不能访问工具列表之外的文件或程序。
+5. 每次只能选择一个行动。
+6. 必须只返回一个合法JSON对象。
+7. 不要使用Markdown代码块。
+8. 不要在JSON前后添加解释文字。
 
 action_type只能是：
 
@@ -323,16 +322,6 @@ def build_planner_context(
             "decision":
                 last_report.get(
                     "decision"
-                ),
-
-            "decision_status":
-                last_report.get(
-                    "decision_status"
-                ),
-
-            "needs_review":
-                last_report.get(
-                    "needs_review"
                 ),
 
             "model_diagnosis":
