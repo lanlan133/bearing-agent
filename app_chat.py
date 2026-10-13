@@ -608,13 +608,6 @@ def build_agent_analysis(report):
             )
         )
 
-    base_probability_values = [
-        rf_probability,
-        xgb_probability,
-        svm_probability,
-    ]
-    base_spread = max(base_probability_values) - min(base_probability_values)
-
     lines.append(
         (
             f"Level-0 基学习器的概率分别为："
@@ -625,15 +618,6 @@ def build_agent_analysis(report):
 
         )
     )
-
-    if base_spread >= 0.20:
-        lines.append(
-            (
-                f"三个基学习器的最大概率差为 {base_spread:.2%}，"
-                "说明不同学习器对当前样本的敏感性存在差异；"
-                "最终仍采用 Stacking 的综合输出。"
-            )
-        )
 
     domain = report.get("domain") or {}
     domain_message = domain.get("message", "未返回模型适用域信息。")
@@ -649,10 +633,6 @@ def build_agent_analysis(report):
     if advice:
         lines.append("后续建议：")
         lines.extend(f"- {item}" for item in advice)
-
-    lines.append(
-        "说明：SHAP 用于刻画特征对完整 Stacking 最终概率的模型贡献，"
-    )
 
     return "\n\n".join(lines)
 
