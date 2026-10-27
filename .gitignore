@@ -40,4 +40,5 @@ models/*.joblib
 
 # Keep deployment models
 !models/Paper_Stacking_Bundle.joblib
+!models/MultiView_Judge_Bundle.joblib
 !models/XGBoost.joblib

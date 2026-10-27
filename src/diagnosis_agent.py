@@ -425,9 +425,10 @@ def build_maintenance_advice(
 ):
 
     probability = float(
-        diagnosis_result[
-            "stacking_probability"
-        ]
+        diagnosis_result.get(
+            "judge_probability",
+            diagnosis_result["risk_probability"],
+        )
     )
 
     prediction = int(
@@ -541,13 +542,14 @@ def build_agent_report(
     )
 
     # ========================================================
-    # 2. Stacking 最终概率
+    # 2. 三路 Judge 最终概率
     # ========================================================
 
     probability = float(
-        diagnosis_result[
-            "stacking_probability"
-        ]
+        diagnosis_result.get(
+            "judge_probability",
+            diagnosis_result["risk_probability"],
+        )
     )
 
     # ========================================================
@@ -584,9 +586,9 @@ def build_agent_report(
     # ========================================================
     # 6. 最终 Agent 结果
     #
-    # 直接采用 MSM-ADASYN-Stacking 的二分类结论：
-    # p < 0.5 为“非轴承润滑不良”，p >= 0.5 为“轴承润滑不良”。
-    # 不再叠加额外的决策层或产生第三种结果。
+    # 直接采用三路 Judge 的二分类结论：
+    # p_judge_three < 0.5 为“非轴承润滑不良”，否则为“轴承润滑不良”。
+    # 不叠加阳性保底或第三种结果。
     # ========================================================
 
     report = {
@@ -613,12 +615,27 @@ def build_agent_report(
             probability,
 
         "stacking_probability":
+            diagnosis_result["stacking_probability"],
+
+        "full_stacking_probability":
+            diagnosis_result.get(
+                "full_stacking_probability",
+                diagnosis_result["stacking_probability"],
+            ),
+
+        "judge_probability":
             probability,
+
+        "envelope_probability":
+            diagnosis_result.get("envelope_probability"),
+
+        "spectrum_probability":
+            diagnosis_result.get("spectrum_probability"),
 
         "model_name":
             diagnosis_result.get(
                 "model_name",
-                "MSM-ADASYN-Stacking"
+                "三路 Judge"
             ),
 
         "model_version":
@@ -818,8 +835,8 @@ def print_agent_report(
     )
 
     print(
-        f"Stacking最终概率: "
-        f"{report['stacking_probability']:.4f}"
+        f"Judge最终概率: "
+        f"{report.get('judge_probability', report['risk_probability']):.4f}"
     )
 
     print(

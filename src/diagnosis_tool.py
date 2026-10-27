@@ -11,10 +11,6 @@ from msm_features import (
     analyze_signal,
 )
 
-from stacking_predictor import (
-    predict_paper_stacking,
-)
-
 # ============================================================
 # 1. 路径
 # ============================================================
@@ -24,7 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MODEL_FILE = (
     PROJECT_ROOT
     / "models"
-    / "Paper_Stacking_Bundle.joblib"
+    / "MultiView_Judge_Bundle.joblib"
 )
 
 DEFAULT_REPORT_DIR = (
@@ -154,7 +150,7 @@ def load_diagnosis_model(
         model_file=DEFAULT_MODEL_FILE
 ):
     """
-    加载训练好的完整 Paper Stacking 模型包。
+    加载训练好的三路 Judge 部署模型包。
     """
 
     model_file = Path(
@@ -238,6 +234,56 @@ def predict_complete_stacking_probability(
     ].predict_proba(X_meta)[:, 1]
 
 
+def predict_three_branch_judge(
+        model_bundle,
+        feature_array,
+        sampling_rate,
+):
+    """Return all three branch probabilities and the Judge's final decision.
+
+    The final class is determined exclusively by ``p_judge_three``.  There is
+    deliberately no positive-guard OR rule in this production path.
+    """
+
+    if not isinstance(model_bundle, dict) or "model" not in model_bundle:
+        raise ValueError(
+            "三路 Judge 模型包无效；请使用 build_multiview_deployment.py 生成模型。"
+        )
+
+    model = model_bundle["model"]
+    if not all(hasattr(model, name) for name in (
+        "predict_frame", "full_", "envelope_", "spectrum_", "judge_three_"
+    )):
+        raise ValueError("三路 Judge 模型包缺少必要分支。")
+
+    values = np.asarray(feature_array, dtype=float).reshape(1, -1)
+    if values.shape != (1, 17) or not np.isfinite(values).all():
+        raise ValueError("三路 Judge 输入必须是有限的 17 维 MSM 特征。")
+
+    row = pd.DataFrame(values, columns=FEATURE_COLUMNS)
+    row["sampling_rate"] = float(sampling_rate)
+    prediction_row = model.predict_frame(row).iloc[0]
+
+    base_probabilities = {
+        name: float(pipeline.predict_proba(values)[:, 1][0])
+        for name, pipeline in model.full_.models_.items()
+    }
+    judge_probability = float(prediction_row["p_judge_three"])
+    threshold = float(model.config.threshold)
+    prediction = int(judge_probability >= threshold)
+
+    return {
+        "p_envelope": float(prediction_row["p_envelope"]),
+        "p_spectrum": float(prediction_row["p_spectrum"]),
+        "p_full": float(prediction_row["p_full"]),
+        "p_judge_three": judge_probability,
+        "prediction": prediction,
+        "diagnosis": "轴承润滑不良" if prediction else "非轴承润滑不良",
+        "threshold": threshold,
+        "base_probabilities": base_probabilities,
+    }
+
+
 # ============================================================
 # 6. 特征字典 -> 17维数组
 # ============================================================
@@ -288,7 +334,7 @@ def explain_prediction(
         top_n=5
 ):
     """
-    对完整MSM-ADASYN-Stacking最终概率做局部Kernel SHAP解释。
+    对完整 17D Stacking 分支概率做局部 Kernel SHAP 解释。
     """
 
     if "shap_background_raw" not in model_bundle:
@@ -318,12 +364,19 @@ def explain_prediction(
     )
 
     if explainer is None:
-        probability_function = lambda values: (
-            predict_complete_stacking_probability(
-                model_bundle,
-                values,
+        if "model" in model_bundle:
+            probability_function = lambda values: (
+                model_bundle["model"].full_.predict_proba(
+                    np.asarray(values, dtype=float)
+                )[:, 1]
             )
-        )
+        else:
+            probability_function = lambda values: (
+                predict_complete_stacking_probability(
+                    model_bundle,
+                    values,
+                )
+            )
 
         explainer = shap.KernelExplainer(
             probability_function,
@@ -517,6 +570,9 @@ def build_diagnosis_summary(
     rf_probability=None,
     xgb_probability=None,
     svm_probability=None,
+    envelope_probability=None,
+    spectrum_probability=None,
+    full_stacking_probability=None,
 ):
     """
     生成不依赖LLM的基础诊断摘要。
@@ -564,9 +620,19 @@ def build_diagnosis_summary(
         )
 
     summary = (
-        f"MSM-ADASYN-Stacking 综合诊断结果为：{diagnosis}。"
-        f"最终润滑失效概率为 {probability:.4f}。"
+        f"三路 Judge 综合诊断结果为：{diagnosis}。"
+        f"Judge 最终概率为 {probability:.4f}。"
     )
+
+    if all(value is not None for value in (
+        envelope_probability, spectrum_probability, full_stacking_probability
+    )):
+        summary += (
+            " 三路输入概率分别为："
+            f"5D包络={envelope_probability:.4f}，"
+            f"12D频谱/ROI={spectrum_probability:.4f}，"
+            f"完整17D Stacking={full_stacking_probability:.4f}。"
+        )
 
     if (
             rf_probability is not None
@@ -581,7 +647,7 @@ def build_diagnosis_summary(
         )
 
     summary += (
-        f" 当前特征解释基于完整 Stacking 最终概率的 SHAP 证据。"
+        f" 当前特征解释基于完整 17D Stacking 分支概率的 SHAP 证据。"
         f"{mechanism_text}。"
     )
 
@@ -687,7 +753,7 @@ def diagnose_signal(
     )
 
     # ========================================================
-    # 4) 加载完整Stacking模型包
+    # 4) 加载三路 Judge 模型包
     # ========================================================
 
     model = load_diagnosis_model(
@@ -695,56 +761,28 @@ def diagnose_signal(
     )
 
     # ============================================================
-    # 5) Paper MSM-ADASYN-Stacking 最终诊断
+    # 5) 三路 Judge 最终诊断
+    #
+    # 5D 谱包络、12D 频谱/ROI、完整 17D Stacking 分支分别出概率；
+    # Judge 只以 p_judge_three 与固定 0.5 阈值输出最终类别。
+    # 不使用完整 Stacking 阳性保底或任何 OR 改判规则。
     # ============================================================
 
-    stacking_result = predict_paper_stacking(
-        feature_array
+    judge_result = predict_three_branch_judge(
+        model,
+        feature_array,
+        sampling_rate,
     )
 
-    # ------------------------------------------------------------
-    # Stacking 最终概率
-    # ------------------------------------------------------------
-
-    probability = float(
-        stacking_result[
-            "final_probability"
-        ]
-    )
-
-    prediction = int(
-        stacking_result[
-            "predicted_class"
-        ]
-    )
-
-    diagnosis_label = (
-        stacking_result[
-            "diagnosis"
-        ]
-    )
-
-    # ------------------------------------------------------------
-    # Level-0 三个基学习器概率
-    # ------------------------------------------------------------
-
-    rf_probability = float(
-        stacking_result[
-            "rf_probability"
-        ]
-    )
-
-    xgb_probability = float(
-        stacking_result[
-            "xgb_probability"
-        ]
-    )
-
-    svm_probability = float(
-        stacking_result[
-            "svm_probability"
-        ]
-    )
+    probability = judge_result["p_judge_three"]
+    prediction = judge_result["prediction"]
+    diagnosis_label = judge_result["diagnosis"]
+    envelope_probability = judge_result["p_envelope"]
+    spectrum_probability = judge_result["p_spectrum"]
+    full_stacking_probability = judge_result["p_full"]
+    rf_probability = judge_result["base_probabilities"]["rf"]
+    xgb_probability = judge_result["base_probabilities"]["xgb"]
+    svm_probability = judge_result["base_probabilities"]["svm"]
 
     # ------------------------------------------------------------
     # 风险等级
@@ -758,7 +796,7 @@ def diagnose_signal(
     )
 
     # ============================================================
-    # 6) 完整Stacking SHAP
+    # 6) 完整 17D Stacking 分支 SHAP
     # ============================================================
 
     evidence = explain_prediction(
@@ -778,6 +816,9 @@ def diagnose_signal(
         rf_probability=rf_probability,
         xgb_probability=xgb_probability,
         svm_probability=svm_probability,
+        envelope_probability=envelope_probability,
+        spectrum_probability=spectrum_probability,
+        full_stacking_probability=full_stacking_probability,
     )
 
     # ========================================================
@@ -924,13 +965,10 @@ def diagnose_signal(
         # ========================================================
 
         "model_name":
-            "MSM-ADASYN-Stacking",
+            "三路 Judge（5D 包络 + 12D 频谱/ROI + 完整 17D Stacking）",
 
         "model_version":
-            stacking_result.get(
-                "model_version",
-                "paper_v1",
-            ),
+            f"multiview_judge_v{model.get('format_version', 1)}",
 
         # ========================================================
         # 最终诊断结果
@@ -948,17 +986,29 @@ def diagnose_signal(
             prediction,
 
         # ========================================================
-        # Stacking 最终概率
+        # 最终决策概率和三路分支概率
         #
-        # 这里从现在开始不再是“XGBoost概率”
-        # 而是最终 Stacking 润滑失效概率
+        # risk_probability 是 Judge 的最终概率；stacking_probability 保留为
+        # 完整 17D Stacking 分支概率，以兼容已有调用方。
         # ========================================================
 
         "risk_probability":
             probability,
 
-        "stacking_probability":
+        "judge_probability":
             probability,
+
+        "stacking_probability":
+            full_stacking_probability,
+
+        "full_stacking_probability":
+            full_stacking_probability,
+
+        "envelope_probability":
+            envelope_probability,
+
+        "spectrum_probability":
+            spectrum_probability,
 
         # ========================================================
         # Level-0 三个基学习器概率
@@ -990,24 +1040,17 @@ def diagnose_signal(
         # ========================================================
 
         "base_probability_mean":
-            stacking_result.get(
-                "base_probability_mean"
-            ),
+            float(np.mean([rf_probability, xgb_probability, svm_probability])),
 
         "base_probability_std":
-            stacking_result.get(
-                "base_probability_std"
-            ),
+            float(np.std([rf_probability, xgb_probability, svm_probability])),
 
         # ========================================================
         # 分类阈值
         # ========================================================
 
         "classification_threshold":
-            stacking_result.get(
-                "threshold",
-                0.5,
-            ),
+            judge_result["threshold"],
 
         # ========================================================
         # 风险等级
@@ -1049,7 +1092,7 @@ def diagnose_signal(
         # ========================================================
 
         "explanation_model":
-            "Complete MSM-ADASYN-Stacking probability",
+            "完整 17D Stacking 分支概率（p_full）",
 
         "explanation_method":
             model.get(

@@ -270,7 +270,7 @@ st.markdown(
     """
     <div class="chat-hero">
         <h1>轴承润滑诊断智能助手</h1>
-        <p>MSM-17D · MSM-ADASYN-Stacking · 智能诊断对话</p>
+        <p>MSM-17D · 三路 Judge · 智能诊断对话</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -541,16 +541,24 @@ def build_agent_analysis(report):
     """将模型证据、适用域和维护建议整合为完整的 Agent 分析。"""
 
     diagnosis = report.get("diagnosis", "未知")
-    probability = float(
+    judge_probability = float(
         report.get(
-            "stacking_probability",
+            "judge_probability",
             report.get("risk_probability", 0.0),
         )
     )
+    full_probability = float(
+        report.get(
+            "full_stacking_probability",
+            report.get("stacking_probability", 0.0),
+        )
+    )
+    envelope_probability = report.get("envelope_probability")
+    spectrum_probability = report.get("spectrum_probability")
     threshold = float(report.get("classification_threshold", 0.5))
     threshold_comparison = (
         "低于"
-        if probability < threshold
+        if judge_probability < threshold
         else "不低于"
     )
 
@@ -577,12 +585,22 @@ def build_agent_analysis(report):
 
     lines = [
         (
-            f"本次样本的 MSM-ADASYN-Stacking 最终诊断为“{diagnosis}”。"
-            f"Stacking 润滑失效概率为 **{probability:.2%}**，"
+            f"本次样本的三路 Judge 最终诊断为“{diagnosis}”。"
+            f"Judge 最终概率为 **{judge_probability:.2%}**，"
             f"{threshold_comparison} {threshold:.0%} 分类阈值，"
             f"因此输出“{diagnosis}”。"
         ),
     ]
+
+    if envelope_probability is not None and spectrum_probability is not None:
+        lines.append(
+            (
+                "三路输入分别为："
+                f"5D 谱包络分支={float(envelope_probability):.2%}、"
+                f"12D 频谱/ROI 分支={float(spectrum_probability):.2%}、"
+                f"完整 17D Stacking 分支={full_probability:.2%}。"
+            )
+        )
 
     if evidence:
         dominant_evidence = evidence[0]
@@ -599,7 +617,7 @@ def build_agent_analysis(report):
 
         lines.append(
             (
-                f"完整 Stacking 的 Top SHAP 证据中，"
+                f"完整 17D Stacking 分支的 Top SHAP 证据中，"
                 f"正向贡献 {len(positive_evidence)} 项、"
                 f"负向贡献 {len(negative_evidence)} 项。"
                 f"影响最大的“{dominant_name}”"
@@ -648,15 +666,20 @@ def format_diagnosis_result(
         "未知"
     )
 
-    probability = float(
+    judge_probability = float(
         report.get(
-            "stacking_probability",
-            report.get(
-                "risk_probability",
-                0.0
-            )
+            "judge_probability",
+            report.get("risk_probability", 0.0)
         )
     )
+    full_probability = float(
+        report.get(
+            "full_stacking_probability",
+            report.get("stacking_probability", 0.0)
+        )
+    )
+    envelope_probability = report.get("envelope_probability")
+    spectrum_probability = report.get("spectrum_probability")
 
     model_diagnosis = report.get(
         "model_diagnosis",
@@ -751,12 +774,20 @@ def format_diagnosis_result(
     )
 
     lines.append(
-        f"**MSM-ADASYN-Stacking 综合诊断：{model_diagnosis}**"
+        f"**三路 Judge 综合诊断：{model_diagnosis}**"
     )
 
     lines.append(
-        f"**Stacking 最终概率：{probability:.2%}**"
+        f"**Judge 最终概率：{judge_probability:.2%}**"
     )
+
+    if envelope_probability is not None and spectrum_probability is not None:
+        lines.append(
+            "**三路输入概率："
+            f"5D 谱包络={float(envelope_probability):.2%}，"
+            f"12D 频谱/ROI={float(spectrum_probability):.2%}，"
+            f"完整 17D Stacking={full_probability:.2%}**"
+        )
 
     lines.append(
         "**Level-0 基学习器概率："
@@ -793,7 +824,7 @@ def format_diagnosis_result(
 
         lines.append(
             (
-                f"Stacking 最终概率为 **{probability:.2%}**，"
+                f"完整 17D Stacking 分支概率为 **{full_probability:.2%}**，"
                 f"分类阈值为 50%。当前 Top-{min(len(evidence), 5)} 证据中，"
                 f"{len(positive_evidence)} 项推动“轴承润滑不良”，"
                 f"{len(negative_evidence)} 项推动“非轴承润滑不良”。"

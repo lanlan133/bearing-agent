@@ -100,7 +100,7 @@ st.title(
 )
 
 st.caption(
-    "MSM-17D + MSM-ADASYN-Stacking + 完整 Stacking SHAP"
+    "MSM-17D + 三路 Judge + 完整 17D Stacking SHAP"
 )
 
 st.divider()
@@ -299,7 +299,7 @@ if diagnosis_mode == "单样本诊断":
 if diagnosis_mode == "单样本诊断" and run_button:
 
     with st.spinner(
-        "正在执行 MSM-17D、MSM-ADASYN-Stacking 和完整 Stacking SHAP 诊断..."
+        "正在执行 5D 包络、12D 频谱/ROI、完整 17D Stacking 和三路 Judge 诊断..."
     ):
 
         report = run_diagnosis_agent(
@@ -339,11 +339,14 @@ if (
             "diagnosis"
         ]
 
-        probability = float(
+        judge_probability = float(
             report.get(
-                "stacking_probability",
+                "judge_probability",
                 report["risk_probability"]
             )
+        )
+        full_probability = float(
+            report.get("full_stacking_probability", report["stacking_probability"])
         )
 
     # --------------------------------------------------------
@@ -381,14 +384,14 @@ if (
     with c2:
 
         st.metric(
-            "Stacking 最终概率",
-            f"{probability:.2%}"
+            "Judge 最终概率",
+            f"{judge_probability:.2%}"
         )
 
     with c3:
 
         st.metric(
-            "Stacking 综合诊断",
+            "三路 Judge 诊断",
             report[
                 "model_diagnosis"
             ]
@@ -431,6 +434,15 @@ if (
             "SVM",
             f"{float(base_probabilities.get('svm', report.get('svm_probability', 0))):.2%}"
         )
+
+    st.subheader("三路输入概率")
+    p1, p2, p3 = st.columns(3)
+    with p1:
+        st.metric("5D 谱包络", f"{float(report.get('envelope_probability', 0)):.2%}")
+    with p2:
+        st.metric("12D 频谱/ROI", f"{float(report.get('spectrum_probability', 0)):.2%}")
+    with p3:
+        st.metric("完整 17D Stacking", f"{full_probability:.2%}")
 
     # ========================================================
     # 12. 模型适用域
@@ -476,12 +488,12 @@ if (
     )
 
     st.write(
-        f"**MSM-ADASYN-Stacking 综合诊断：** "
+        f"**三路 Judge 综合诊断：** "
         f"{report['model_diagnosis']}"
     )
 
     st.write(
-        f"**Stacking 最终概率：** {probability:.4f}"
+        f"**Judge 最终概率：** {judge_probability:.4f}"
     )
 
     # ========================================================
@@ -493,7 +505,7 @@ if (
     )
 
     st.caption(
-        "以下 SHAP 值解释17维MSM特征对完整Stacking最终概率的贡献。"
+        "以下 SHAP 值解释 17 维 MSM 特征对完整 17D Stacking 分支概率的贡献。"
     )
 
     evidence_rows = []
