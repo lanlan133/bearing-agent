@@ -717,6 +717,12 @@ def build_agent_report(
                 "top_evidence"
             ],
 
+        "signal_statistics":
+            diagnosis_result.get("signal_statistics", {}),
+
+        "sampling_rate":
+            diagnosis_result["sampling_rate"],
+
         "roi":
             diagnosis_result[
                 "roi"

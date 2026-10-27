@@ -10,6 +10,7 @@ import shap
 from msm_features import (
     analyze_signal,
 )
+from diagnosis_evidence import calculate_signal_statistics
 
 # ============================================================
 # 1. 路径
@@ -718,6 +719,9 @@ def diagnose_signal(
             "采样频率必须大于0"
         )
 
+    # 原始时域描述仅用于报告，不改变已训练模型的 17 维输入。
+    signal_statistics = calculate_signal_statistics(signal_data)
+
     # ========================================================
     # 2) MSM分析
     # ========================================================
@@ -1072,6 +1076,9 @@ def diagnose_signal(
 
         "sampling_rate":
             sampling_rate,
+
+        "signal_statistics":
+            signal_statistics,
 
         "signal_length":
             int(

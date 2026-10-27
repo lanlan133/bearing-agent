@@ -30,6 +30,11 @@ from data_loader import (
 from agent_runtime import (
     run_agent_task,
 )
+from diagnosis_evidence import (
+    build_evidence_details,
+    build_evidence_narrative,
+    build_judge_conclusion,
+)
 
 
 # ============================================================
@@ -528,114 +533,21 @@ def load_uploaded_dataset(file_path):
 # 9. 诊断结果格式化
 # ============================================================
 
-def format_feature_value(value):
-    """以适合工程阅读的精度展示特征值。"""
-
-    try:
-        return f"{float(value):.4f}"
-    except (TypeError, ValueError):
-        return str(value)
-
-
 def build_agent_analysis(report):
     """将模型证据、适用域和维护建议整合为完整的 Agent 分析。"""
 
     diagnosis = report.get("diagnosis", "未知")
-    judge_probability = float(
-        report.get(
-            "judge_probability",
-            report.get("risk_probability", 0.0),
-        )
-    )
-    full_probability = float(
-        report.get(
-            "full_stacking_probability",
-            report.get("stacking_probability", 0.0),
-        )
-    )
-    envelope_probability = report.get("envelope_probability")
-    spectrum_probability = report.get("spectrum_probability")
-    threshold = float(report.get("classification_threshold", 0.5))
-    threshold_comparison = (
-        "低于"
-        if judge_probability < threshold
-        else "不低于"
-    )
-
-    base_probabilities = report.get("base_probabilities") or {}
-    rf_probability = float(
-        base_probabilities.get("rf", report.get("rf_probability", 0.0))
-    )
-    xgb_probability = float(
-        base_probabilities.get("xgb", report.get("xgb_probability", 0.0))
-    )
-    svm_probability = float(
-        base_probabilities.get("svm", report.get("svm_probability", 0.0))
-    )
-
-    evidence = report.get("top_evidence") or []
-    positive_evidence = [
-        item for item in evidence
-        if float(item.get("shap_value", 0.0)) > 0
-    ]
-    negative_evidence = [
-        item for item in evidence
-        if float(item.get("shap_value", 0.0)) < 0
-    ]
-
-    lines = [
-        (
-            f"本次样本的三路 Judge 最终诊断为“{diagnosis}”。"
-            f"Judge 最终概率为 **{judge_probability:.2%}**，"
-            f"{threshold_comparison} {threshold:.0%} 分类阈值，"
-            f"因此输出“{diagnosis}”。"
-        ),
-    ]
-
-    if envelope_probability is not None and spectrum_probability is not None:
+    lines = [build_judge_conclusion(report)]
+    if diagnosis == "非轴承润滑不良":
         lines.append(
-            (
-                "三路输入分别为："
-                f"5D 谱包络分支={float(envelope_probability):.2%}、"
-                f"12D 频谱/ROI 分支={float(spectrum_probability):.2%}、"
-                f"完整 17D Stacking 分支={full_probability:.2%}。"
-            )
+            "当前结果表示模型更支持非润滑不良这一类别，并不排除其他故障。"
+            "时域幅值和频谱形态可作为后续同测点、同工况趋势比较的依据。"
         )
-
-    if evidence:
-        dominant_evidence = evidence[0]
-        dominant_name = dominant_evidence.get(
-            "feature_name",
-            dominant_evidence.get("feature", "关键特征"),
-        )
-        dominant_shap = float(dominant_evidence.get("shap_value", 0.0))
-        direction = (
-            "轴承润滑不良"
-            if dominant_shap > 0
-            else "非轴承润滑不良"
-        )
-
+    elif diagnosis == "轴承润滑不良":
         lines.append(
-            (
-                f"完整 17D Stacking 分支的 Top SHAP 证据中，"
-                f"正向贡献 {len(positive_evidence)} 项、"
-                f"负向贡献 {len(negative_evidence)} 项。"
-                f"影响最大的“{dominant_name}”"
-                f"SHAP 为 {dominant_shap:+.4f}，"
-                f"主要推动模型向“{direction}”方向判断。"
-            )
+            "当前结果提示优先检查轴承润滑相关因素；"
+            "可结合润滑供给、温度、噪声及近期维护记录确认原因。"
         )
-
-    lines.append(
-        (
-            f"Level-0 基学习器的概率分别为："
-            f"RF={rf_probability:.2%}、"
-            f"XGBoost={xgb_probability:.2%}、"
-            f"SVM={svm_probability:.2%}。"
-
-
-        )
-    )
 
     domain = report.get("domain") or {}
     domain_message = domain.get("message", "未返回模型适用域信息。")
@@ -649,8 +561,7 @@ def build_agent_analysis(report):
 
     advice = report.get("maintenance_advice") or []
     if advice:
-        lines.append("后续建议：")
-        lines.extend(f"- {item}" for item in advice)
+        lines.append("后续建议：" + "".join(str(item) for item in advice))
 
     return "\n\n".join(lines)
 
@@ -801,61 +712,13 @@ def format_diagnosis_result(
     )
 
     # --------------------------------------------
-    # 完整 Stacking SHAP
+    # 由真实信号统计、频谱和分支 SHAP 生成完整文字解释。
     # --------------------------------------------
 
     lines.append("")
     lines.append("### 判断依据（模型证据）")
 
-    evidence = report.get(
-        "top_evidence",
-        []
-    )
-
-    if evidence:
-        positive_evidence = [
-            item for item in evidence
-            if float(item.get("shap_value", 0.0)) > 0
-        ]
-        negative_evidence = [
-            item for item in evidence
-            if float(item.get("shap_value", 0.0)) < 0
-        ]
-
-        lines.append(
-            (
-                f"完整 17D Stacking 分支概率为 **{full_probability:.2%}**，"
-                f"分类阈值为 50%。当前 Top-{min(len(evidence), 5)} 证据中，"
-                f"{len(positive_evidence)} 项推动“轴承润滑不良”，"
-                f"{len(negative_evidence)} 项推动“非轴承润滑不良”。"
-            )
-        )
-
-        for rank, item in enumerate(evidence[:5], start=1):
-            feature = item.get("feature", "-")
-            name = item.get("feature_name", "-")
-            value = format_feature_value(item.get("feature_value", 0))
-            shap_value = float(item.get("shap_value", 0.0))
-            mechanism = item.get("mechanism", "")
-            direction = (
-                "推动模型判为轴承润滑不良"
-                if shap_value > 0
-                else "推动模型判为非轴承润滑不良"
-            )
-
-            lines.append(
-                (
-                    f"{rank}. **{feature} {name}**：本次特征值为 `{value}`，"
-                    f"SHAP 为 `{shap_value:+.4f}`，{direction}。"
-                    f"{mechanism}"
-                )
-            )
-
-    else:
-
-        lines.append(
-            "当前报告未返回 SHAP 证据。"
-        )
+    lines.append(build_evidence_narrative(report))
 
     return "\n".join(
         lines
@@ -868,7 +731,9 @@ def format_diagnosis_result(
 
 def render_chat_message(
     role,
-    content
+    content,
+    evidence_details=None,
+    agent_analysis=None,
 ):
     """统一渲染助手和用户消息。"""
 
@@ -893,12 +758,19 @@ def render_chat_message(
             unsafe_allow_html=True,
         )
         st.markdown(content)
+        if evidence_details:
+            with st.expander("查看详细时域指标与 SHAP 数值", expanded=False):
+                st.markdown(evidence_details)
+        if agent_analysis:
+            st.markdown("---\n\n### AI Agent 分析\n\n" + agent_analysis)
 
 
 for message in st.session_state.messages:
     render_chat_message(
         message["role"],
         message["content"],
+        message.get("evidence_details"),
+        message.get("agent_analysis"),
     )
 
 
@@ -1025,6 +897,9 @@ if prompt:
     # ========================================================
 
     if user_text.strip():
+
+        assistant_details = None
+        assistant_analysis = None
 
         st.session_state.messages.append(
             {
@@ -1205,11 +1080,9 @@ if prompt:
                                 st.session_state.last_report,
                             )
                         )
-                        assistant_text = (
-                            f"{diagnosis_text}\n\n---\n\n"
-                            f"### AI Agent 分析\n\n"
-                            f"{build_agent_analysis(st.session_state.last_report)}"
-                        )
+                        assistant_text = diagnosis_text
+                        assistant_details = build_evidence_details(st.session_state.last_report)
+                        assistant_analysis = build_agent_analysis(st.session_state.last_report)
                     else:
                         assistant_text = agent_answer
 
@@ -1233,6 +1106,8 @@ if prompt:
             {
                 "role": "assistant",
                 "content": assistant_text,
+                "evidence_details": assistant_details,
+                "agent_analysis": assistant_analysis,
             }
         )
 

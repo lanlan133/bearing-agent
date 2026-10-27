@@ -34,13 +34,15 @@ PLANNER_SYSTEM_PROMPT = """
 重要约束：
 
 1. 你不能自行计算或修改任何模型概率。
-2. 你不能修改MSM-ADASYN-Stacking的诊断结果。
+2. 你不能修改三路 Judge 的诊断结果；最终类别由 judge_probability 与 classification_threshold 比较得到。
 3. 诊断结论仅可为“非轴承润滑不良”或“轴承润滑不良”。
 4. 你不能访问工具列表之外的文件或程序。
 5. 每次只能选择一个行动。
 6. 必须只返回一个合法JSON对象。
 7. 不要使用Markdown代码块。
 8. 不要在JSON前后添加解释文字。
+9. stacking_probability / full_stacking_probability 是完整 17D Stacking 分支概率；SHAP 仅解释该分支。
+10. signal_statistics 来自原始时域信号，仅作描述。不能把 f8 频谱峭度当作时域峭度，或编造历史正常范围。
 
 action_type只能是：
 
@@ -333,6 +335,13 @@ def build_planner_context(
                 last_report.get(
                     "stacking_probability"
                 ),
+
+            "judge_probability": last_report.get("judge_probability"),
+            "envelope_probability": last_report.get("envelope_probability"),
+            "spectrum_probability": last_report.get("spectrum_probability"),
+            "full_stacking_probability": last_report.get("full_stacking_probability"),
+            "classification_threshold": last_report.get("classification_threshold", 0.5),
+            "signal_statistics": last_report.get("signal_statistics", {}),
 
             "risk_level":
                 last_report.get(

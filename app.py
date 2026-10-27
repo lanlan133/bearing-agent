@@ -22,6 +22,7 @@ if str(SRC_DIR) not in sys.path:
 
 from data_loader import load_single_sample
 from diagnosis_agent import run_diagnosis_agent
+from diagnosis_evidence import build_evidence_details, build_evidence_narrative
 from batch_diagnosis import run_batch_diagnosis
 from llm_reporter import (
     generate_single_report,
@@ -500,13 +501,8 @@ if (
     # 14. Top SHAP 证据
     # ========================================================
 
-    st.subheader(
-        "完整 Stacking SHAP 证据"
-    )
-
-    st.caption(
-        "以下 SHAP 值解释 17 维 MSM 特征对完整 17D Stacking 分支概率的贡献。"
-    )
+    st.subheader("判断依据（模型证据）")
+    st.markdown(build_evidence_narrative(report))
 
     evidence_rows = []
 
@@ -552,11 +548,8 @@ if (
         evidence_rows
     )
 
-    st.dataframe(
-        evidence_df,
-        width="stretch",
-        hide_index=True,
-    )
+    with st.expander("查看详细时域指标与 SHAP 数值", expanded=False):
+        st.markdown(build_evidence_details(report))
 
 
     # ========================================================
