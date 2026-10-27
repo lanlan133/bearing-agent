@@ -296,7 +296,6 @@ def _compact_report(
         "envelope_probability": report.get("envelope_probability"),
         "spectrum_probability": report.get("spectrum_probability"),
         "full_stacking_probability": report.get("full_stacking_probability"),
-        "signal_statistics": report.get("signal_statistics", {}),
 
         "stacking_probability":
             float(

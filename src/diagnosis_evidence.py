@@ -1,46 +1,10 @@
-"""Data-grounded descriptions for the diagnosis UI, independent of Streamlit.
-
-Time-domain statistics describe the uploaded signal only. They are not additional
-inputs to the trained 17D models. SHAP in these reports explains p_full only.
-"""
+"""Spectral descriptions for the diagnosis UI; SHAP explains p_full only."""
 
 from __future__ import annotations
 
 import math
 
-import numpy as np
-
 from config import HIGH_FREQ_RATIO
-
-
-def calculate_signal_statistics(signal_data):
-    """Raw-signal RMS/peak factor and centered population Pearson kurtosis.
-
-    Scaling before taking powers avoids overflow for large finite amplitudes.
-    Kurtosis is undefined for a constant signal; peak factor is undefined at zero
-    RMS. Return None for those cases so the report never invents a value.
-    """
-    values = np.asarray(signal_data, dtype=float).ravel()
-    if not values.size or not np.isfinite(values).all():
-        raise ValueError("时域统计要求非空且全部有限的一维信号。")
-    peak = float(np.max(np.abs(values)))
-    scaled = values / peak if peak else np.zeros_like(values)
-    rms_scaled = float(np.sqrt(np.mean(scaled ** 2)))
-    centered = scaled - np.mean(scaled)
-    variance = float(np.mean(centered ** 2))
-    kurtosis = (
-        float(np.mean(centered ** 4) / variance ** 2)
-        if variance > 0 else None
-    )
-    return {
-        "sample_count": int(values.size),
-        "mean": float(np.mean(scaled) * peak),
-        "rms": float(rms_scaled * peak),
-        "peak_abs": peak,
-        "crest_factor": float(1.0 / rms_scaled) if rms_scaled else None,
-        "kurtosis_pearson": kurtosis,
-        "source": "raw_signal_before_detrending",
-    }
 
 
 def _number(value):
@@ -66,36 +30,6 @@ def _probability(report, *keys):
         if value is not None and 0 <= value <= 1:
             return value
     return None
-
-
-def _signal_description(report):
-    stats = report.get("signal_statistics") or {}
-    rms, peak = _number(stats.get("rms")), _number(stats.get("peak_abs"))
-    if rms is None or peak is None:
-        return "当前报告没有原始时域统计，暂不能描述波形幅值与冲击性；可重新诊断以补充这些指标。"
-    text = (
-        f"原始振动信号的 RMS 为 {_format(rms)}，绝对峰值为 {_format(peak)}"
-        "（沿用上传信号的幅值单位）。"
-    )
-    crest = _number(stats.get("crest_factor"))
-    if crest is not None:
-        text += f"峰值因子为 {crest:.2f}，即最大绝对幅值约为 RMS 的 {crest:.2f} 倍。"
-    else:
-        text += "当前 RMS 为零，峰值因子无定义。"
-    kurtosis = _number(stats.get("kurtosis_pearson"))
-    if kurtosis is None:
-        text += "信号为常量，时域峭度无定义。"
-    elif kurtosis > 3:
-        text += (
-            f"时域 Pearson 峭度为 {kurtosis:.2f}，高于高斯分布参考值 3，"
-            "提示该段信号幅值分布的尾部较重、可能存在突出峰值。"
-        )
-    else:
-        text += (
-            f"时域 Pearson 峭度为 {kurtosis:.2f}，未超过高斯分布参考值 3；"
-            "该统计量本身不能排除局部冲击。"
-        )
-    return text + "幅值是否异常仍需同设备、同工况的历史基线作比较。"
 
 
 def _spectrum_description(report):
@@ -238,7 +172,6 @@ def build_judge_conclusion(report):
 
 def build_evidence_narrative(report):
     sections = (
-        ("信号状态", _signal_description(report)),
         ("频谱与 ROI 状态", _spectrum_description(report)),
         ("模型证据", _model_description(report)),
         ("综合结论", build_judge_conclusion(report)),
@@ -247,20 +180,11 @@ def build_evidence_narrative(report):
 
 
 def build_evidence_details(report):
-    """Small Markdown tables for the native collapsible detail panel."""
-    stats = report.get("signal_statistics") or {}
+    """Feature values and SHAP in the native collapsible detail panel."""
     lines = [
-        "时域统计来自原始信号；不作为新增特征输入诊断模型。",
-        "", "| 时域指标 | 数值 |", "|---|---:|",
+        "SHAP 解释目标：完整 17D Stacking 分支概率 p_full。", "",
+        "| 特征 | 特征值 | SHAP | 对 p_full 的作用 |", "|---|---:|---:|---|",
     ]
-    for name, key in (
-        ("样本数", "sample_count"), ("均值", "mean"), ("RMS", "rms"),
-        ("绝对峰值", "peak_abs"), ("峰值因子", "crest_factor"),
-        ("时域 Pearson 峭度（常量时无定义）", "kurtosis_pearson"),
-    ):
-        lines.append(f"| {name} | {_format(stats.get(key))} |")
-    lines += ["", "SHAP 解释目标：完整 17D Stacking 分支概率 p_full。", "",
-              "| 特征 | 特征值 | SHAP | 对 p_full 的作用 |", "|---|---:|---:|---|"]
     for item in report.get("top_evidence") or []:
         shap = _number(item.get("shap_value"))
         direction = "提高" if shap is not None and shap > 0 else "降低" if shap is not None and shap < 0 else "接近零"

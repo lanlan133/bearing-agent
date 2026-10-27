@@ -5,17 +5,13 @@ import sys
 import unittest
 from unittest.mock import patch
 
-import numpy as np
 from streamlit.testing.v1 import AppTest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from diagnosis_evidence import calculate_signal_statistics
-
-
 class TestChatEvidenceUI(unittest.TestCase):
-    def test_diagnosis_has_four_paragraphs_collapsed_details_and_analysis_after_rerun(self):
+    def test_diagnosis_has_three_paragraphs_shap_details_and_no_time_statistics(self):
         report = {
             "diagnosis": "非轴承润滑不良", "model_diagnosis": "非轴承润滑不良",
             "judge_probability": 0.2, "risk_probability": 0.2,
@@ -23,7 +19,7 @@ class TestChatEvidenceUI(unittest.TestCase):
             "envelope_probability": 0.1, "spectrum_probability": 0.1,
             "classification_threshold": 0.5, "sampling_rate": 10240,
             "base_probabilities": {"rf": 0.1, "xgb": 0.2, "svm": 0.3},
-            "signal_statistics": calculate_signal_statistics(np.sin(np.arange(64))),
+            "signal_statistics": {"rms": 0.21, "kurtosis_pearson": 4.86},
             "features": {"f2": 0.82, "f7": 0.12},
             "roi": {"active": False}, "gaussian": {"success": False},
             "top_evidence": [dict(feature="f7", feature_name="谱平坦度", feature_value=0.12, shap_value=-0.1)],
@@ -47,13 +43,17 @@ class TestChatEvidenceUI(unittest.TestCase):
             self.assertFalse(app.exception)
             runtime.assert_called_once()
             message = app.session_state["messages"][-1]
-            for title in ("信号状态", "频谱与 ROI 状态", "模型证据", "综合结论"):
+            for title in ("频谱与 ROI 状态", "模型证据", "综合结论"):
                 self.assertIn(f"**{title}：**", message["content"])
-            self.assertIn("时域 Pearson 峭度", message["evidence_details"])
+            self.assertNotIn("信号状态", message["content"])
+            self.assertNotIn("时域", message["content"])
+            self.assertNotIn("时域", message["evidence_details"])
+            self.assertIn("谱平坦度", message["evidence_details"])
+            self.assertNotIn("时域", message["agent_analysis"])
             self.assertIn("后续建议：继续进行趋势监测。", message["agent_analysis"])
             self.assertEqual(len(app.expander), 1)
             self.assertFalse(app.expander[0].proto.expanded)
-            self.assertIn("详细时域指标", app.expander[0].label)
+            self.assertEqual("查看详细特征数值与 SHAP", app.expander[0].label)
             app.run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.expander), 1)

@@ -548,7 +548,7 @@ if (
         evidence_rows
     )
 
-    with st.expander("查看详细时域指标与 SHAP 数值", expanded=False):
+    with st.expander("查看详细特征数值与 SHAP", expanded=False):
         st.markdown(build_evidence_details(report))
 
 

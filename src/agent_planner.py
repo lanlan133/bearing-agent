@@ -42,7 +42,7 @@ PLANNER_SYSTEM_PROMPT = """
 7. 不要使用Markdown代码块。
 8. 不要在JSON前后添加解释文字。
 9. stacking_probability / full_stacking_probability 是完整 17D Stacking 分支概率；SHAP 仅解释该分支。
-10. signal_statistics 来自原始时域信号，仅作描述。不能把 f8 频谱峭度当作时域峭度，或编造历史正常范围。
+10. 当前诊断依据为频谱、ROI 和谱包络特征；不能把 f8 频谱峭度当作时域峭度，或编造历史正常范围。
 
 action_type只能是：
 
@@ -341,7 +341,6 @@ def build_planner_context(
             "spectrum_probability": last_report.get("spectrum_probability"),
             "full_stacking_probability": last_report.get("full_stacking_probability"),
             "classification_threshold": last_report.get("classification_threshold", 0.5),
-            "signal_statistics": last_report.get("signal_statistics", {}),
 
             "risk_level":
                 last_report.get(

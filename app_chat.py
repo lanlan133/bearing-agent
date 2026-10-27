@@ -541,7 +541,7 @@ def build_agent_analysis(report):
     if diagnosis == "非轴承润滑不良":
         lines.append(
             "当前结果表示模型更支持非润滑不良这一类别，并不排除其他故障。"
-            "时域幅值和频谱形态可作为后续同测点、同工况趋势比较的依据。"
+            "频谱形态可作为后续同测点、同工况趋势比较的依据。"
         )
     elif diagnosis == "轴承润滑不良":
         lines.append(
@@ -712,7 +712,7 @@ def format_diagnosis_result(
     )
 
     # --------------------------------------------
-    # 由真实信号统计、频谱和分支 SHAP 生成完整文字解释。
+    # 由频谱、ROI 和分支 SHAP 生成完整文字解释。
     # --------------------------------------------
 
     lines.append("")
@@ -759,7 +759,7 @@ def render_chat_message(
         )
         st.markdown(content)
         if evidence_details:
-            with st.expander("查看详细时域指标与 SHAP 数值", expanded=False):
+            with st.expander("查看详细特征数值与 SHAP", expanded=False):
                 st.markdown(evidence_details)
         if agent_analysis:
             st.markdown("---\n\n### AI Agent 分析\n\n" + agent_analysis)
