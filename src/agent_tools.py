@@ -170,6 +170,15 @@ def _get_mat_path(
     return path
 
 
+def _context_dataset(context, mat_path):
+    """Reuse only a dataset explicitly bound to this session's active path."""
+    data = context.get("_mat_dataset")
+    cached_path = context.get("_mat_dataset_path")
+    if data is not None and cached_path == str(Path(mat_path).resolve()):
+        return data
+    return load_mat_dataset(mat_path)
+
+
 def _validate_top_n(
         top_n: int
 ) -> int:
@@ -391,9 +400,7 @@ def inspect_dataset(
         context
     )
 
-    data = load_mat_dataset(
-        mat_path
-    )
+    data = _context_dataset(context, mat_path)
 
     return {
         "success": True,
@@ -430,9 +437,7 @@ def get_sample_info(
         context
     )
 
-    data = load_mat_dataset(
-        mat_path
-    )
+    data = _context_dataset(context, mat_path)
 
     sample_index = (
         _validate_sample_number(
@@ -444,6 +449,7 @@ def get_sample_info(
     sample = load_single_sample(
         mat_path,
         sample_index=sample_index,
+        dataset=data,
     )
 
     return {
@@ -474,9 +480,7 @@ def diagnose_sample(
         top_n
     )
 
-    data = load_mat_dataset(
-        mat_path
-    )
+    data = _context_dataset(context, mat_path)
 
     sample_index = (
         _validate_sample_number(
@@ -488,6 +492,7 @@ def diagnose_sample(
     sample = load_single_sample(
         mat_path,
         sample_index=sample_index,
+        dataset=data,
     )
 
     report = run_diagnosis_agent(
@@ -542,9 +547,7 @@ def diagnose_range(
         top_n
     )
 
-    data = load_mat_dataset(
-        mat_path
-    )
+    data = _context_dataset(context, mat_path)
 
     total_samples = int(
         data.shape[0]
@@ -598,6 +601,7 @@ def diagnose_range(
             sample = load_single_sample(
                 mat_path,
                 sample_index=sample_index,
+                dataset=data,
             )
 
             report = run_diagnosis_agent(

@@ -1,1114 +1,311 @@
-import sys
-import re
-import tempfile
+"""Five-region local workbench for the three-branch bearing diagnosis Agent."""
+
+import json
 from pathlib import Path
+import sys
 
 import streamlit as st
 
-
-# ============================================================
-# 1. 项目路径
-# ============================================================
-
 PROJECT_ROOT = Path(__file__).resolve().parent
-SRC_DIR = PROJECT_ROOT / "src"
+if str(PROJECT_ROOT / "src") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-if str(SRC_DIR) not in sys.path:
-    sys.path.insert(
-        0,
-        str(SRC_DIR)
-    )
+from diagnosis_evidence import build_key_evidence, build_model_details, build_probability_summary
+from signal_charts import signal_frames, waveform_chart, spectrum_chart, roi_chart
+from workbench_state import WorkbenchState, explicit_sample_number
 
-# ============================================================
-# 2. 项目模块
-# ============================================================
-from data_loader import (
-    load_mat_dataset,
-    load_single_sample,
-)
-
-from agent_runtime import (
-    run_agent_task,
-)
-from diagnosis_evidence import (
-    build_evidence_details,
-    build_evidence_narrative,
-    build_judge_conclusion,
-)
-
-
-# ============================================================
-# 3. Streamlit 页面
-# ============================================================
 
 st.set_page_config(
-    page_title="轴承润滑诊断智能助手",
-    page_icon="🤖",
-    layout="wide",
+    page_title="轴承润滑诊断工作台", page_icon=":material/query_stats:", layout="wide",
 )
-
-
-st.markdown(
-    """
-    <style>
-    :root {
-        --ink: #17243b;
-        --muted: #66758a;
-        --line: #afc1d5;
-        --accent: #1d5f91;
-        --soft: #f3f7fb;
-        --user: #eef6ff;
-    }
-
-    html, body, [class*="css"] {
-        font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-    }
-
-    .stApp {
-        background:
-            radial-gradient(circle at 12% 4%, #eaf3fb 0, transparent 28%),
-            linear-gradient(180deg, #f7fafe 0%, #edf3f9 100%);
-        color: var(--ink);
-        isolation: isolate;
-        overflow-x: hidden;
-    }
-
-    .stApp::before {
-        content: "";
-        position: fixed;
-        top: 0;
-        right: max(16px, calc((100vw - 1180px) / 2));
-        bottom: 0;
-        left: max(16px, calc((100vw - 1180px) / 2));
-        z-index: 0;
-        pointer-events: none;
-        background: #ffffff;
-        border-right: 1px solid var(--line);
-        border-left: 1px solid var(--line);
-        box-shadow: 0 0 50px rgba(35, 69, 103, 0.08);
-    }
-
-    [data-testid="stAppViewContainer"] {
-        position: relative;
-        z-index: 1;
-        background: transparent;
-        scroll-padding-bottom: 10rem;
-    }
-
-    header[data-testid="stHeader"] {
-        background: transparent;
-    }
-
-    [data-testid="stMainBlockContainer"] {
-        max-width: 1180px;
-        min-height: calc(100vh - 32px);
-        margin: 16px auto;
-        padding: 1.7rem 3.2rem 8rem;
-        background: transparent;
-        border: 0;
-        border-radius: 0;
-        box-shadow: none;
-    }
-
-    [data-testid="stMainBlockContainer"]::after {
-        content: "";
-        display: block;
-        width: 100%;
-        height: 8rem;
-    }
-
-    .chat-hero {
-        text-align: center;
-        margin: 0.15rem 0 1.7rem;
-    }
-
-    .chat-hero h1 {
-        margin: 0;
-        color: var(--ink);
-        font-size: clamp(1.65rem, 3vw, 2.25rem);
-        font-weight: 720;
-        letter-spacing: 0.04em;
-    }
-
-    .chat-hero p {
-        margin: 0.55rem 0 0;
-        color: var(--muted);
-        font-size: 0.92rem;
-    }
-
-    [data-testid="stChatMessage"] {
-        padding: 0.8rem 0.25rem;
-        margin: 0.15rem 0;
-        background: transparent;
-        border: 0;
-    }
-
-    [data-testid="stChatMessageAvatarUser"],
-    [data-testid="stChatMessageAvatarAssistant"] {
-        display: none;
-    }
-
-    [data-testid="stChatMessageContent"] {
-        width: 100%;
-        min-width: 0;
-        color: var(--ink);
-        font-size: 1rem;
-        line-height: 1.85;
-    }
-
-    [data-testid="stChatMessage"]:has(
-        [data-testid="stChatMessageAvatarUser"]
-    ) {
-        width: 90%;
-        max-width: 90%;
-        margin-right: 0;
-        margin-left: auto;
-        padding: 0.85rem 1.1rem;
-        box-sizing: border-box;
-        background: var(--user);
-        border: 1px solid #d8e7f5;
-        border-radius: 18px;
-    }
-
-    .role-label {
-        display: inline-block;
-        margin-bottom: 0.3rem;
-        color: var(--accent);
-        font-weight: 700;
-        letter-spacing: 0.03em;
-    }
-
-    .role-label.user {
-        color: #315b7d;
-    }
-
-    [data-testid="stChatMessageContent"] h2 {
-        margin-top: 0.1rem;
-        font-size: 1.6rem;
-    }
-
-    [data-testid="stChatMessageContent"] h3 {
-        margin-top: 1.15rem;
-        color: #203e5d;
-        font-size: 1.18rem;
-    }
-
-    [data-testid="stChatMessageContent"] code {
-        color: #146b55;
-        background: #f2f8f6;
-        border-radius: 6px;
-        padding: 0.12rem 0.32rem;
-    }
-
-    [data-testid="stBottomBlockContainer"] {
-        position: fixed !important;
-        right: auto;
-        bottom: 0;
-        left: 50%;
-        transform: translateX(-50%);
-        z-index: 999;
-        width: min(1180px, calc(100% - 32px));
-        max-width: 1180px;
-        margin: 0;
-        padding: 1.35rem 3.2rem 1.2rem;
-        box-sizing: border-box;
-        background: #ffffff;
-        border-right: 1px solid var(--line);
-        border-left: 1px solid var(--line);
-    }
-
-    [data-testid="stChatInput"] {
-        width: 100%;
-        background: rgba(255, 255, 255, 0.98);
-        border: 1.5px solid #426887;
-        border-radius: 22px;
-        box-shadow: 0 10px 30px rgba(35, 69, 103, 0.12);
-    }
-
-    [data-testid="stChatInput"] textarea {
-        min-height: 3.25rem;
-        padding-top: 0.95rem;
-        font-size: 1rem;
-    }
-
-    [data-testid="stFileUploaderDropzone"] {
-        border-radius: 16px;
-    }
-
-    @media (max-width: 760px) {
-        .stApp::before {
-            top: 0;
-            right: 6px;
-            bottom: 0;
-            left: 6px;
-        }
-
-        [data-testid="stMainBlockContainer"] {
-            min-height: calc(100vh - 12px);
-            margin: 6px;
-            padding: 1.2rem 1rem 7.5rem;
-            border-radius: 24px;
-        }
-
-        [data-testid="stChatMessage"]:has(
-            [data-testid="stChatMessageAvatarUser"]
-        ) {
-            width: 100%;
-            max-width: 100%;
-        }
-
-        .chat-hero p {
-            display: none;
-        }
-
-        [data-testid="stBottomBlockContainer"] {
-            width: calc(100% - 12px);
-            padding: 1rem 1rem 0.8rem;
-        }
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <div class="chat-hero">
-        <h1>轴承润滑诊断智能助手</h1>
-        <p>MSM-17D · 三路 Judge · 智能诊断对话</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-
-# ============================================================
-# 4. Session State
-# ============================================================
-
-if "messages" not in st.session_state:
-    st.session_state.messages = [
-        {
-            "role": "assistant",
-            "content": (
-                "你好，我是轴承润滑诊断助手。\n\n"
-                "请上传一个 `.mat` 振动数据文件。"
-            ),
-        }
-    ]
-
-
-if "mat_file_path" not in st.session_state:
-    st.session_state.mat_file_path = None
-
-
-if "mat_file_name" not in st.session_state:
-    st.session_state.mat_file_name = None
-
-
-if "total_samples" not in st.session_state:
-    st.session_state.total_samples = 0
-
-
-if "last_sample_index" not in st.session_state:
-    st.session_state.last_sample_index = None
-
-
-if "last_report" not in st.session_state:
-    st.session_state.last_report = None
-
-
-if "last_sample" not in st.session_state:
-    st.session_state.last_sample = None
-
-
-if "last_agent_result" not in st.session_state:
-    st.session_state.last_agent_result = None
-
-
-# ============================================================
-# 5. 中文数字转换
-# ============================================================
-
-CN_NUM = {
-    "零": 0,
-    "一": 1,
-    "二": 2,
-    "两": 2,
-    "三": 3,
-    "四": 4,
-    "五": 5,
-    "六": 6,
-    "七": 7,
-    "八": 8,
-    "九": 9,
-}
-
-
-def chinese_number_to_int(text):
-    """
-    支持：
-    五
-    十
-    十五
-    二十
-    二十五
-    一百零五
-    """
-
-    if not text:
-        return None
-
-    # 纯数字
-    if text.isdigit():
-        return int(text)
-
-    total = 0
-    current = 0
-
-    units = {
-        "十": 10,
-        "百": 100,
-        "千": 1000,
-    }
-
-    for char in text:
-
-        if char in CN_NUM:
-
-            current = CN_NUM[char]
-
-        elif char in units:
-
-            unit = units[char]
-
-            if current == 0:
-                current = 1
-
-            total += current * unit
-            current = 0
-
-        else:
-            return None
-
-    total += current
-
-    return total
-
-
-# ============================================================
-# 6. 从用户文本提取样本编号
-# ============================================================
-
-def parse_sample_number(text):
-    """
-    用户使用 1-based 编号：
-    5      -> 第5条
-    第5条  -> 第5条
-    第五条 -> 第5条
-
-    返回 Python 0-based index。
-    """
-
-    text = text.strip()
-
-    # --------------------------------------------
-    # 阿拉伯数字
-    # --------------------------------------------
-
-    patterns = [
-        r"第\s*(\d+)\s*条",
-        r"第\s*(\d+)\s*个",
-        r"处理\s*(\d+)",
-        r"分析\s*(\d+)",
-        r"^\s*(\d+)\s*$",
-    ]
-
-    for pattern in patterns:
-
-        match = re.search(
-            pattern,
-            text
-        )
-
-        if match:
-
-            number = int(
-                match.group(1)
-            )
-
-            return number - 1
-
-
-    # --------------------------------------------
-    # 中文数字
-    # --------------------------------------------
-
-    match = re.search(
-        r"第([零一二两三四五六七八九十百千]+)[条个]",
-        text
-    )
-
-    if match:
-
-        number = chinese_number_to_int(
-            match.group(1)
-        )
-
-        if number is not None:
-            return number - 1
-
-
-    # 例如：
-    # 分析第五条
-    match = re.search(
-        r"([零一二两三四五六七八九十百千]+)",
-        text
-    )
-
-    if match:
-
-        number = chinese_number_to_int(
-            match.group(1)
-        )
-
-        if number is not None:
-            return number - 1
-
-    return None
-
-
-# ============================================================
-# 7. 保存上传的 MAT 文件
-# ============================================================
-
-def save_uploaded_mat(uploaded_file):
-
-    temp_dir = (
-        PROJECT_ROOT
-        / "data"
-        / "uploaded"
-    )
-
-    temp_dir.mkdir(
-        parents=True,
-        exist_ok=True
-    )
-
-    output_path = (
-        temp_dir
-        / uploaded_file.name
-    )
-
-    output_path.write_bytes(
-        uploaded_file.getvalue()
-    )
-
-    return output_path
-
-
-# ============================================================
-# 8. 读取数据集数量
-# ============================================================
-
-def load_uploaded_dataset(file_path):
-
-    dataset = load_mat_dataset(
-        file_path
-    )
-
+# Keep the title clear of the fixed Streamlit toolbar.
+st.html("""
+<style>
+    [data-testid="stMain"] [data-testid="stMainBlockContainer"] { padding-top: 3.375rem; }
+</style>
+""")
+
+if "workbench" not in st.session_state:
+    st.session_state.workbench = WorkbenchState()
+workbench = st.session_state.workbench
+if "_sample_number_sync" in st.session_state:
+    st.session_state.sample_number = st.session_state.pop("_sample_number_sync")
+st.session_state.setdefault("sample_number", workbench.sample_number)
+
+
+def on_upload():
+    uploaded = st.session_state.workbench_upload
+    if uploaded is None:
+        return
     try:
-        total = len(dataset)
-
-    except Exception:
-        raise RuntimeError(
-            "无法获取 MAT 数据集样本数量，"
-            "需要根据 data_loader.py 的返回结构调整。"
+        changed = workbench.activate_upload(
+            uploaded.name, uploaded.getvalue(), PROJECT_ROOT / "data" / "uploaded"
         )
+        if changed:
+            st.session_state.sample_number = 1
+    except Exception as exc:
+        workbench.error = f"文件读取失败：{exc}"
 
-    return dataset, total
+
+def on_sample_change():
+    try:
+        workbench.select_sample(st.session_state.sample_number)
+    except (TypeError, ValueError) as exc:
+        workbench.error = str(exc)
 
 
-# ============================================================
-# 9. 诊断结果格式化
-# ============================================================
+def move_sample(offset):
+    workbench.select_sample(workbench.sample_number + offset)
+    st.session_state.sample_number = workbench.sample_number
 
-def build_agent_analysis(report):
-    """将模型证据、适用域和维护建议整合为完整的 Agent 分析。"""
 
-    diagnosis = report.get("diagnosis", "未知")
-    lines = [build_judge_conclusion(report)]
-    if diagnosis == "非轴承润滑不良":
-        lines.append(
-            "当前结果表示模型更支持非润滑不良这一类别，并不排除其他故障。"
-            "频谱形态可作为后续同测点、同工况趋势比较的依据。"
-        )
-    elif diagnosis == "轴承润滑不良":
-        lines.append(
-            "当前结果提示优先检查轴承润滑相关因素；"
-            "可结合润滑供给、温度、噪声及近期维护记录确认原因。"
-        )
+def clear_conversation():
+    workbench.messages.clear()
 
-    domain = report.get("domain") or {}
-    domain_message = domain.get("message", "未返回模型适用域信息。")
-    if domain.get("validated", False):
-        lines.append(f"模型适用域：{domain_message}")
+
+def maintenance_actions(report):
+    # The card already shows the diagnosis, so keep only the follow-up actions.
+    actions = [
+        item for item in (report.get("maintenance_advice") or [])
+        if item != "当前模型未显示强烈的轴承润滑不良风险。"
+    ]
+    return "\n".join(f"- {item}" for item in actions) or "当前报告未提供后续建议。"
+
+
+def report_markdown():
+    sample = workbench.sample or {}
+    report = workbench.report
+    if report is None:
+        return ""
+    return (
+        f"# 第 {workbench.sample_number} 条数据诊断报告\n\n"
+        f"文件：{workbench.file_name}\n\n"
+        f"设备：{sample.get('equipment_id', '-')}，测点：{sample.get('measurement_point', '-')}\n\n"
+        f"最终诊断：{report['diagnosis']}\n\n"
+        f"{build_probability_summary(report)}\n\n"
+        f"## 关键依据\n\n{build_key_evidence(report)}\n\n"
+        f"## 后续建议\n\n{maintenance_actions(report)}\n\n"
+        f"## 模型详情\n\n{build_model_details(report)}"
+    )
+
+
+def render_report():
+    if workbench.error:
+        st.error(workbench.error)
+    if workbench.dataset is None:
+        st.info("上传 .mat 振动数据并选择样本，即可开始诊断。", icon=":material/info:")
+        return
+    sample = workbench.sample or {}
+    st.caption(
+        f"第 {workbench.sample_number} / {workbench.total_samples} 条 · "
+        f"设备 {sample.get('equipment_id', '-')} · 测点 {sample.get('measurement_point', '-')}"
+    )
+    report = workbench.report
+    if report is None:
+        st.info("当前样本已就绪。点击「开始诊断」查看结论和关键依据。", icon=":material/info:")
+        return
+    if report["diagnosis"] == "轴承润滑不良":
+        st.warning(f"诊断结果：{report['diagnosis']}", icon=":material/priority_high:")
     else:
-        lines.append(
-            f"模型适用域提示：{domain_message}"
-            "该结果可用于辅助判断，但应谨慎解释。"
+        st.success(f"诊断结果：{report['diagnosis']}", icon=":material/check_circle:")
+    st.markdown(build_probability_summary(report))
+    domain = report.get("domain") or {}
+    if domain.get("validated") is False and domain.get("message"):
+        st.caption(domain["message"])
+    st.markdown("#### 关键依据")
+    st.markdown(build_key_evidence(report))
+    st.markdown("#### 后续建议")
+    st.markdown(maintenance_actions(report))
+    with st.expander("展开查看模型详情", expanded=False):
+        st.markdown(build_model_details(report))
+
+
+with st.container(gap="xsmall"):
+    st.title("轴承润滑诊断工作台", anchor=False)
+    st.caption("振动信号分析 · 三路 Judge 融合诊断")
+left, right = st.columns([2, 1], gap="medium", vertical_alignment="top")
+diagnose_requested = False
+
+with left:
+    # Region 4: all high-frequency actions belong to the current file/sample.
+    with st.container(border=True, key="operation_panel", gap="small"):
+        st.markdown("#### 数据与样本")
+        with st.container(horizontal=True, vertical_alignment="bottom", gap="small"):
+            with st.popover("上传 MAT", icon=":material/upload_file:"):
+                st.file_uploader(
+                    "上传 .mat 数据文件", type=["mat"], key="workbench_upload",
+                    on_change=on_upload,
+                )
+            st.number_input(
+                "样本编号", min_value=1, max_value=max(1, workbench.total_samples),
+                step=1, key="sample_number", width=120,
+                disabled=workbench.dataset is None, on_change=on_sample_change,
+            )
+            st.button(
+                "上一条", key="previous_sample", on_click=move_sample, args=(-1,),
+                disabled=workbench.dataset is None or workbench.sample_number <= 1,
+            )
+            st.button(
+                "下一条", key="next_sample", on_click=move_sample, args=(1,),
+                disabled=workbench.dataset is None or workbench.sample_number >= workbench.total_samples,
+            )
+            diagnose_requested = st.button(
+                "开始诊断", type="primary", icon=":material/play_arrow:",
+                key="diagnose_current", disabled=workbench.dataset is None,
+            )
+            with st.popover("导出", icon=":material/download:", disabled=workbench.report is None):
+                st.download_button(
+                    "下载 Markdown 报告", data=report_markdown(), mime="text/markdown",
+                    file_name=f"diagnosis_{workbench.sample_number}.md", on_click="ignore",
+                )
+                payload = {
+                    "file_name": workbench.file_name,
+                    "sample_number": workbench.sample_number,
+                    "report": workbench.report,
+                }
+                st.download_button(
+                    "下载 JSON 结果", data=json.dumps(payload, ensure_ascii=False, indent=2),
+                    mime="application/json", file_name=f"diagnosis_{workbench.sample_number}.json",
+                    on_click="ignore",
+                )
+        st.caption(
+            f"当前文件：{workbench.file_name} · 共 {workbench.total_samples} 条 · 当前第 {workbench.sample_number} 条"
+            if workbench.dataset is not None else "未上传数据 · 支持 MATLAB .mat 振动文件"
         )
 
-    advice = report.get("maintenance_advice") or []
-    if advice:
-        lines.append("后续建议：" + "".join(str(item) for item in advice))
+    # Region 3: keep the waveform and full-band spectrum in the same panel.
+    with st.container(border=True, height=550, key="signal_panel", gap="small"):
+        signal_slot = st.empty()
 
-    return "\n\n".join(lines)
+    # Region 5: the automatically identified ROI and its spectral envelopes.
+    with st.container(border=True, height=420, key="roi_panel", gap="small"):
+        roi_slot = st.empty()
 
+with right, st.container(height="stretch", key="analysis_column", gap="small"):
+    # Region 1: a scrollable current-sample report, separate from conversation.
+    with st.container(border=True, height=730, key="diagnosis_panel", gap="small"):
+        st.markdown("#### 诊断结果与分析")
+        report_slot = st.empty()
 
-def format_diagnosis_result(
-    sample_number,
-    sample,
-    report
-):
-
-    diagnosis = report.get(
-        "diagnosis",
-        "未知"
-    )
-
-    judge_probability = float(
-        report.get(
-            "judge_probability",
-            report.get("risk_probability", 0.0)
+    # Region 2: inline chat input stays below its own history inside this column.
+    with st.container(
+        border=True, height="stretch", key="conversation_panel", gap="small",
+        vertical_alignment="distribute",
+    ):
+        with st.container(horizontal=True, horizontal_alignment="distribute"):
+            st.markdown("#### DeepSeek 对话")
+            st.button("清空", on_click=clear_conversation, key="clear_conversation", type="tertiary")
+        st.caption(
+            f"围绕当前第 {workbench.sample_number} 条提问，历史消息保留样本标记。"
+            if workbench.dataset is not None else "上传数据后，可询问样本的诊断依据或请求批量诊断。"
         )
-    )
-    full_probability = float(
-        report.get(
-            "full_stacking_probability",
-            report.get("stacking_probability", 0.0)
-        )
-    )
-    envelope_probability = report.get("envelope_probability")
-    spectrum_probability = report.get("spectrum_probability")
-
-    model_diagnosis = report.get(
-        "model_diagnosis",
-        "未知"
-    )
-
-    base_probabilities = report.get(
-        "base_probabilities",
-        {}
-    )
-
-    rf_probability = float(
-        base_probabilities.get(
-            "rf",
-            report.get("rf_probability", 0.0)
-        )
-    )
-    xgb_probability = float(
-        base_probabilities.get(
-            "xgb",
-            report.get("xgb_probability", 0.0)
-        )
-    )
-    svm_probability = float(
-        base_probabilities.get(
-            "svm",
-            report.get("svm_probability", 0.0)
-        )
-    )
-
-    risk_level = report.get(
-        "risk_level",
-        "未知"
-    )
-
-    lines = []
-
-    lines.append(
-        f"## 第 {sample_number} 条数据诊断结果"
-    )
-
-    lines.append("")
-
-    # --------------------------------------------
-    # 样本信息
-    # --------------------------------------------
-
-    equipment_id = sample.get(
-        "equipment_id",
-        "-"
-    )
-
-    measurement_point = sample.get(
-        "measurement_point",
-        "-"
-    )
-
-    sampling_rate = sample.get(
-        "sampling_rate",
-        "-"
-    )
-
-    speed = sample.get(
-        "speed",
-        "-"
-    )
-
-    lines.append(
-        f"**设备编号：** {equipment_id}"
-    )
-
-    lines.append(
-        f"**测点：** {measurement_point}"
-    )
-
-    lines.append(
-        f"**采样频率：** {sampling_rate} Hz"
-    )
-
-    lines.append(
-        f"**转速：** {speed} rpm"
-    )
-
-    lines.append("")
-
-    # --------------------------------------------
-    # 诊断
-    # --------------------------------------------
-
-    lines.append(
-        f"### Agent 最终决策：{diagnosis}"
-    )
-
-    lines.append(
-        f"**三路 Judge 综合诊断：{model_diagnosis}**"
-    )
-
-    lines.append(
-        f"**Judge 最终概率：{judge_probability:.2%}**"
-    )
-
-    if envelope_probability is not None and spectrum_probability is not None:
-        lines.append(
-            "**三路输入概率："
-            f"5D 谱包络={float(envelope_probability):.2%}，"
-            f"12D 频谱/ROI={float(spectrum_probability):.2%}，"
-            f"完整 17D Stacking={full_probability:.2%}**"
+        with st.container(height=160, border=False, key="conversation_history", autoscroll=True):
+            if not workbench.messages:
+                st.caption("例如：哪些特征影响最大？三路模型的判断是否一致？")
+            for message in workbench.messages:
+                avatar = ":material/analytics:" if message["role"] == "assistant" else None
+                with st.chat_message(message["role"], avatar=avatar):
+                    st.caption(f"{message.get('file_name', '')} · 第 {message.get('sample_number', 1)} 条")
+                    st.markdown(message["content"])
+        prompt = st.chat_input(
+            "输入问题或样本编号…", key="workbench_question",
+            disabled=workbench.dataset is None, submit_mode="disable", max_chars=3000,
         )
 
-    lines.append(
-        "**Level-0 基学习器概率："
-        f"RF={rf_probability:.2%}，"
-        f"XGBoost={xgb_probability:.2%}，"
-        f"SVM={svm_probability:.2%}**"
+
+# Render stable panels first, then compute the selected signal just once per switch.
+frames = None
+roi_frame = None
+analysis = None
+if workbench.dataset is not None:
+    try:
+        with st.spinner("正在准备当前样本图表…"):
+            analysis = workbench.ensure_signal()
+            frames = signal_frames(workbench.sample, analysis, envelope_view="full")
+            roi_frame = signal_frames(workbench.sample, analysis, envelope_view="roi")[2]
+    except Exception as exc:
+        workbench.error = f"当前样本绘图失败：{exc}"
+
+# Use the same chart layout before and after upload; empty data leaves axes visible.
+roi = analysis["roi"] if frames is not None else {}
+with signal_slot.container(gap="xxsmall"):
+    with st.container(horizontal=True, horizontal_alignment="distribute", vertical_alignment="center", gap="xsmall"):
+        st.markdown("#### 振动信号")
+        if frames is not None:
+            sample = workbench.sample
+            st.caption(
+                f"采样率 {sample['sampling_rate']:g} Hz · 转速 {sample['speed']:g} rpm · "
+                f"{len(sample['signal']):,} 点"
+            )
+        else:
+            st.caption("采样率 — Hz · 转速 — rpm · 点数 —")
+    st.markdown("**时域波形**")
+    st.altair_chart(
+        waveform_chart(frames[0] if frames is not None else None),
+        width="stretch", height=200, key="waveform_plot",
+    )
+    st.markdown("**全频段频谱**")
+    st.altair_chart(
+        spectrum_chart(frames[1] if frames is not None else None, roi),
+        width="stretch", height=210, key="spectrum_plot",
     )
 
-    lines.append(
-        f"**风险等级：{risk_level}**"
-    )
-
-    # --------------------------------------------
-    # 由频谱、ROI 和分支 SHAP 生成完整文字解释。
-    # --------------------------------------------
-
-    lines.append("")
-    lines.append("### 判断依据（模型证据）")
-
-    lines.append(build_evidence_narrative(report))
-
-    return "\n".join(
-        lines
-    )
-
-
-# ============================================================
-# 10. 显示聊天历史
-# ============================================================
-
-def render_chat_message(
-    role,
-    content,
-    evidence_details=None,
-    agent_analysis=None,
-):
-    """统一渲染助手和用户消息。"""
-
-    role_name = (
-        "助手"
-        if role == "assistant"
-        else "用户"
-    )
-
-    role_class = (
-        "assistant"
-        if role == "assistant"
-        else "user"
-    )
-
-    with st.chat_message(role):
-        st.markdown(
-            (
-                f'<span class="role-label {role_class}">'
-                f'{role_name}</span>'
-            ),
-            unsafe_allow_html=True,
+with roi_slot.container(gap="xxsmall"):
+    st.markdown("#### 频谱包络与 ROI")
+    if frames is None:
+        st.caption("关注频带与主峰待识别")
+    elif roi.get("active"):
+        st.caption(
+            f"关注频带 {roi['start'] / 1000:.2f}–{roi['end'] / 1000:.2f} kHz · "
+            f"主峰 {roi['peak_frequency'] / 1000:.2f} kHz"
         )
-        st.markdown(content)
-        if evidence_details:
-            with st.expander("查看详细特征数值与 SHAP", expanded=False):
-                st.markdown(evidence_details)
-        if agent_analysis:
-            st.markdown("---\n\n### AI Agent 分析\n\n" + agent_analysis)
-
-
-for message in st.session_state.messages:
-    render_chat_message(
-        message["role"],
-        message["content"],
-        message.get("evidence_details"),
-        message.get("agent_analysis"),
+    else:
+        st.caption("当前样本未激活 ROI，左右两图均显示完整频段。")
+    full_envelope_column, expanded_roi_column = st.columns(
+        2, gap="small", vertical_alignment="top", wrap=False,
     )
+    with full_envelope_column:
+        st.markdown("**完整包络**")
+        st.altair_chart(
+            roi_chart(frames[2] if frames is not None else None, roi=roi),
+            width="stretch", height=280, key="full_envelope_plot",
+        )
+    with expanded_roi_column:
+        st.markdown("**ROI 扩展**")
+        st.altair_chart(
+            roi_chart(roi_frame, roi=roi),
+            width="stretch", height=280, key="expanded_roi_plot",
+        )
+
+with report_slot.container():
+    render_report()
 
 
-# ============================================================
-# 11. GPT 风格输入框
-# ============================================================
-
-prompt = st.chat_input(
-    "输入样本编号或问题，也可以上传 .mat 文件…",
-    accept_file=True,
-    file_type=["mat"],
-)
-
-
-# ============================================================
-# 12. 处理用户输入
-# ============================================================
+# Buttons request the deterministic tool; natural-language tasks use the LLM loop.
+if diagnose_requested:
+    try:
+        with report_slot.container():
+            with st.spinner(f"正在诊断第 {workbench.sample_number} 条并生成 SHAP 解释…"):
+                workbench.diagnose()
+    except Exception as exc:
+        workbench.error = f"诊断失败：{exc}"
+    st.rerun()
 
 if prompt:
-
-    # --------------------------------------------
-    # 新版 Streamlit ChatInputValue
-    # --------------------------------------------
-
-    user_text = ""
-
-    uploaded_files = []
-
-    if hasattr(prompt, "text"):
-
-        user_text = (
-            prompt.text
-            or ""
-        )
-
-        uploaded_files = list(
-            prompt.files
-            or []
-        )
-
-    else:
-
-        user_text = str(prompt)
-
-
-    # ========================================================
-    # A. 文件上传
-    # ========================================================
-
-    if uploaded_files:
-
-        uploaded_file = uploaded_files[0]
-
-        st.session_state.messages.append(
-            {
-                "role": "user",
-                "content": (
-                    f"📎 已上传：`{uploaded_file.name}`"
-                ),
-            }
-        )
-
-        try:
-
-            file_path = save_uploaded_mat(
-                uploaded_file
-            )
-
-            with st.spinner(
-                "正在读取 MAT 文件..."
-            ):
-
-                dataset, total_samples = (
-                    load_uploaded_dataset(
-                        file_path
-                    )
-                )
-
-            st.session_state.mat_file_path = (
-                str(file_path)
-            )
-
-            st.session_state.mat_file_name = (
-                uploaded_file.name
-            )
-
-            st.session_state.total_samples = (
-                total_samples
-            )
-
-            # 上传新文件，清空旧诊断
-            st.session_state.last_report = None
-            st.session_state.last_sample = None
-            st.session_state.last_sample_index = None
-            st.session_state.last_agent_result = None
-
-            assistant_text = (
-                f"✅ 文件 `{uploaded_file.name}` "
-                f"读取完毕。\n\n"
-                f"一共加载 **{total_samples} 条数据**。\n\n"
-                f"你想处理哪一条？\n\n"
-                f"例如可以输入：`5`、`第5条` 或 `第五条`。"
-            )
-
-        except Exception as exc:
-
-            assistant_text = (
-                "❌ MAT 文件读取失败：\n\n"
-                f"`{type(exc).__name__}: {exc}`"
-            )
-
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": assistant_text,
-            }
-        )
-
-        st.rerun()
-
-
-    # ========================================================
-    # B. 普通文本
-    # ========================================================
-
-    if user_text.strip():
-
-        assistant_details = None
-        assistant_analysis = None
-
-        st.session_state.messages.append(
-            {
-                "role": "user",
-                "content": user_text,
-            }
-        )
-
-
-        # ----------------------------------------------------
-        # 尚未上传 MAT
-        # ----------------------------------------------------
-
-        if not st.session_state.mat_file_path:
-
-            assistant_text = (
-                "请先上传一个 `.mat` 数据文件，"
-                "读取完成后我再帮你选择并诊断样本。"
-            )
-
-
-        else:
-
-            # ------------------------------------------------
-            # 构造只属于当前会话的 Agent 上下文
-            # ------------------------------------------------
-
-            sample_index = parse_sample_number(
-                user_text
-            )
-
-            total_samples = int(
-                st.session_state.total_samples
-            )
-
-            if (
-                sample_index is not None
-                and (
-                    sample_index < 0
-                    or sample_index >= total_samples
-                )
-            ):
-                assistant_text = (
-                    f"当前数据集共有 "
-                    f"**{total_samples} 条数据**。\n\n"
-                    f"请输入 1 ～ {total_samples} "
-                    f"之间的样本编号。"
-                )
-
+    question = str(prompt).strip()
+    number = explicit_sample_number(question)
+    try:
+        with report_slot.container():
+            if number is not None:
+                workbench.select_sample(number)
+                workbench.add_message("user", question)
+                with st.spinner(f"正在诊断第 {number} 条…"):
+                    workbench.diagnose()
+                workbench.add_message("assistant", f"第 {number} 条诊断完成，结果已更新至右上方诊断区。")
             else:
-                last_sample_number = None
-
-                if (
-                    st.session_state.last_sample_index
-                    is not None
-                ):
-                    last_sample_number = (
-                        st.session_state.last_sample_index
-                        + 1
-                    )
-
-                agent_context = {
-                    "mat_file_path":
-                        st.session_state.mat_file_path,
-
-                    "mat_file_name":
-                        st.session_state.mat_file_name,
-
-                    "total_samples":
-                        total_samples,
-
-                    "last_sample_number":
-                        last_sample_number,
-
-                    "last_report":
-                        st.session_state.last_report,
-                }
-
-                # 简短编号统一改写为明确任务，减少规划歧义。
-                if sample_index is not None:
-                    human_number = sample_index + 1
-                    agent_goal = (
-                        f"请诊断第{human_number}条数据，"
-                        "给出完整的二分类诊断结果。"
-                    )
-                    spinner_text = (
-                        f"Agent 正在规划并诊断第 "
-                        f"{human_number} 条数据..."
-                    )
-                else:
-                    agent_goal = user_text
-                    spinner_text = (
-                        "Agent 正在分析目标并选择工具..."
-                    )
-
-                with st.spinner(
-                    spinner_text
-                ):
-                    agent_result = run_agent_task(
-                        user_goal=agent_goal,
-                        context=agent_context,
-                        max_steps=5,
-                    )
-
-                st.session_state.last_agent_result = (
-                    agent_result
-                )
-
-                result_context = (
-                    agent_result.get("context")
-                    or {}
-                )
-
-                updated_report = result_context.get(
-                    "last_report"
-                )
-
-                updated_sample_number = (
-                    result_context.get(
-                        "last_sample_number"
-                    )
-                )
-
-                observations = (
-                    agent_result.get("observations")
-                    or []
-                )
-
-                diagnosed_sample = any(
-                    observation.get("success", False)
-                    and observation.get("tool")
-                    == "diagnose_sample"
-                    for observation in observations
-                )
-
-                # 诊断工具执行成功后，把完整结果同步回网页状态。
-                if (
-                    diagnosed_sample
-                    and updated_report is not None
-                    and updated_sample_number is not None
-                ):
-                    updated_sample_index = (
-                        int(updated_sample_number) - 1
-                    )
-
-                    updated_sample = load_single_sample(
-                        Path(
-                            st.session_state.mat_file_path
-                        ),
-                        sample_index=updated_sample_index,
-                    )
-
-                    st.session_state.last_sample_index = (
-                        updated_sample_index
-                    )
-                    st.session_state.last_sample = (
-                        updated_sample
-                    )
-                    st.session_state.last_report = (
-                        updated_report
-                    )
-
-                status = agent_result.get(
-                    "status",
-                    "failed",
-                )
-                agent_answer = agent_result.get(
-                    "answer",
-                    "Agent 没有返回有效内容。",
-                )
-
-                if status == "completed":
-                    if diagnosed_sample:
-                        diagnosis_text = (
-                            format_diagnosis_result(
-                                int(updated_sample_number),
-                                st.session_state.last_sample,
-                                st.session_state.last_report,
-                            )
-                        )
-                        assistant_text = diagnosis_text
-                        assistant_details = build_evidence_details(st.session_state.last_report)
-                        assistant_analysis = build_agent_analysis(st.session_state.last_report)
-                    else:
-                        assistant_text = agent_answer
-
-                elif status == "waiting_user":
-                    assistant_text = agent_answer
-
-                elif status == "max_steps_reached":
-                    assistant_text = (
-                        "Agent 在规定步骤内未完成任务。\n\n"
-                        f"{agent_answer}"
-                    )
-
-                else:
-                    assistant_text = (
-                        "Agent 执行失败。\n\n"
-                        f"{agent_answer}"
-                    )
-
-
-        st.session_state.messages.append(
-            {
-                "role": "assistant",
-                "content": assistant_text,
-                "evidence_details": assistant_details,
-                "agent_analysis": assistant_analysis,
-            }
-        )
-
-        st.rerun()
+                with st.spinner("DeepSeek 正在分析问题并调用所需工具…"):
+                    workbench.ask(question)
+    except Exception as exc:
+        workbench.add_message("assistant", f"本次请求未完成：{exc}")
+    st.session_state._sample_number_sync = workbench.sample_number
+    st.rerun()

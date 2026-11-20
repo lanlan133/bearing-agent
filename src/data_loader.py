@@ -60,7 +60,7 @@ def load_mat_dataset(mat_path):
     return data
 
 
-def load_single_sample(mat_path, sample_index=0):
+def load_single_sample(mat_path, sample_index=0, *, dataset=None):
     """
     读取一条振动样本
 
@@ -69,7 +69,9 @@ def load_single_sample(mat_path, sample_index=0):
         sample_index=0 表示MATLAB中的第1行
     """
 
-    data = load_mat_dataset(mat_path)
+    # Web sessions and batch tools can reuse a parsed MAT instead of re-reading
+    # the whole file for each row. Existing path-only callers remain supported.
+    data = load_mat_dataset(mat_path) if dataset is None else dataset
 
     if sample_index < 0 or sample_index >= data.shape[0]:
         raise IndexError(

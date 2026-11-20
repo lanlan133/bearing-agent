@@ -342,11 +342,18 @@ def build_planner_context(
             "full_stacking_probability": last_report.get("full_stacking_probability"),
             "classification_threshold": last_report.get("classification_threshold", 0.5),
 
+            "roi": last_report.get("roi", {}),
+            "features": last_report.get("features", {}),
+            "top_evidence": last_report.get("top_evidence", []),
+            "maintenance_advice": last_report.get("maintenance_advice", []),
+
             "risk_level":
                 last_report.get(
                     "risk_level"
                 ),
         } if last_report else None,
+
+        "conversation_history": context.get("_conversation_history", [])[-10:],
     }
 
 
